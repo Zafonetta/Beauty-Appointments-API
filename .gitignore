@@ -1,0 +1,30 @@
+# --- Security & Environments ---
+.env
+.venv/
+env/
+venv/
+
+# --- Database & User Media ---
+*.db
+*.sqlite3
+/media
+
+# --- IDE Settings (PyCharm & VSCode) ---
+.idea/
+.vscode/
+
+# --- Python Cache & Compiled Files ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Testing & Code Quality Caches ---
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+
+# --- Operating System Files ---
+.DS_Store
+Thumbs.db
