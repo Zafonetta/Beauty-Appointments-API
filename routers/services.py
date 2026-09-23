@@ -88,6 +88,7 @@ async def update_service(
     )
     return updated_service
 
+
 # DELETE Endpoint: delete service
 @router.delete("/{service_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_service(

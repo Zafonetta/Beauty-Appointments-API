@@ -213,41 +213,6 @@ async def get_all_appointments_admin(
     return appointments, total
 
 
-async def get_user_services(
-        db: AsyncSession,
-        user_id: int,
-        skip: int = 0,
-        limit: int = 10) -> tuple[list[models.Service], int] | None:
-    """Fetch paginated services for a specific user."""
-
-    # Verify user existence
-    user_exists = await db.scalar(
-        select(models.User.id).where(models.User.id == user_id)
-    )
-    if not user_exists:
-        return None  # Return None so the router can raise 404
-
-    # Get total service count for this user
-    total = await db.scalar(
-        select(func.count())
-        .select_from(models.Service)
-        .where(models.Service.user_id == user_id)
-    ) or 0
-
-# Fetch paginated services and sort them here
-    result = await db.execute(
-        select(models.Service)
-        .where(models.Service.user_id == user_id) # Find all services of this user
-        .order_by(models.Service.price.desc())
-        .offset(skip)#Hop over the service the frontend has already seen
-        .limit(limit),
-    )
-    services = list(result.scalars().all())
-
-    return services, total
-
-
-
 #Partially update a user record in the database
 async def partial_user_update(
         db: AsyncSession,
@@ -255,7 +220,7 @@ async def partial_user_update(
         user_update: schemas.UserUpdate,
         ) -> models.User:
     """Applies passed updates, commits transaction, and returns updated instance."""
-    # Fetch the existing user (reusing our existing get_user_by_id helper)
+    # Use exclude_unset=True to avoid overwriting unsupplied fields with None
     update_data = user_update.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
@@ -264,6 +229,7 @@ async def partial_user_update(
     await db.commit()
     await db.refresh(user)
     return user
+
 
 async def delete_profile(db: AsyncSession,  user: models.User) -> None:
     """Delete an existing user profile."""

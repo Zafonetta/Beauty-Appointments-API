@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import crud
 import models
 import schemas
+from crud import get_user_by_email, get_user_by_username, partial_user_update
 from tests.conftest import create_test_user, auth_client
 from fastapi import status
 
@@ -227,6 +228,38 @@ async def test_crud_get_users_direct(db_session: AsyncSession):
     assert isinstance(users, list)
     assert isinstance(total, int)
 
+# Unit test
+@pytest.mark.anyio
+async def test_crud_get_user_username(db_session: AsyncSession, auth_client: AsyncClient):
+    # Get existing user created by auth_client fixture
+    user = await crud.get_user_by_username(db_session, username="testuser")
+    assert user is not None
+
+    # Test case-insensitive match (Pass uppercase username)
+    found_user = await crud.get_user_by_username(db_session, username=user.username)
+    assert found_user is not None
+    assert found_user.id == user.id
+
+    # Test non-existent username branch (Returns None)
+    non_existent_user = await crud.get_user_by_username(db_session, username="non_existent_user")
+    assert non_existent_user is None
+
+
+# Unit test get user by phone if provided
+@pytest.mark.anyio
+async def test_crud_get_user_by_phone(db_session: AsyncSession, auth_client: AsyncClient):
+    # Get existing user created by auth_client fixture
+    user = await crud.get_user_by_phone(db_session, phone="0123456789")
+    assert user is not None
+
+    found_user = await crud.get_user_by_phone(db_session, phone=user.phone)
+    assert found_user is not None
+    assert found_user.id == user.id
+
+    non_existent_user = await crud.get_user_by_phone(db_session, phone="non_existent_phone")
+    assert non_existent_user is None
+
+
 # test PATCH Endpoint: logged-in user update his profile
 # User successfully update his profile
 @pytest.mark.anyio
@@ -244,6 +277,30 @@ async def test_user_update_success(auth_client: AsyncClient):
     assert data["username"] == "Updated name"
     assert data["email"] == "test@example.com"
     assert data["phone"] == "0123456789"
+
+
+# Unit test partial update success
+@pytest.mark.anyio
+async def test_crud_partial_update_success(db_session: AsyncSession):
+    """ Successful partial update of user profile """
+    user = models.User(
+        username="Eva",
+        email="eva@email.com",
+        phone="0123456789",
+        password_hash="password123",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    # Pass user into the CRUD function
+    update_data = schemas.UserUpdate(phone="32887565258")
+    updated_user = await crud.partial_user_update(
+        db=db_session,
+        user=user,
+        user_update=update_data,
+    )
+    assert updated_user.phone == "32887565258"
 
 
 # Non-authorized user wants to update not his profile: forbidden(403)
@@ -350,6 +407,26 @@ async def test_user_delete_failure(client: AsyncClient):
     response = await client.delete("/api/users/me")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert "detail" in response.json()
+
+# Unit test
+@pytest.mark.anyio
+async def test_crud_user_delete(db_session: AsyncSession):
+    user = models.User(
+        username="Eva",
+        email="eva@.com",
+        phone="0123456789",
+        password_hash="password123",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    deleting_user = await crud.delete_profile(db=db_session, user=user)
+
+    # Assert the user is no longer in the database
+    user_id = user.id
+    deleted_user = await db_session.get(models.User, user_id)
+    assert deleted_user is None
 
 
 # test DELETE Endpoint: admin can delete users' profile

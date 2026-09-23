@@ -236,6 +236,20 @@ async def client(
     app.dependency_overrides.clear()
 
 
+@pytest.fixture
+async def test_user(
+        db_session: AsyncSession,
+):
+    user = models.User(
+        username="Eva",
+        email="eva@example.com",
+        password_hash="hashed_pass",
+        phone="3288088807",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+    return user
 
 # Helpers & Auth Fixtures
 async def create_test_user(

@@ -34,6 +34,45 @@ async def test_create_appointment_success(client: AsyncClient, test_service: mod
     assert "id" in data
     assert "end_time" in data
 
+# Unit test
+@pytest.mark.asyncio
+async def test_crud_check_appointment_conflict(db_session: AsyncSession, test_service: models.Service, test_user):
+    # Establish a single base time to prevent microsecond drift
+    now = datetime.now(timezone.utc)
+
+    # Define time slot 1
+    start_time_first = now + timedelta(hours=1)
+    end_time_first = start_time_first + timedelta(minutes=test_service.duration)
+
+    # Test FREE slot (Database has no appointments yet)
+    has_conflict = await crud.check_appointment_conflict(
+        db=db_session,
+        start_time=start_time_first,
+        end_time=end_time_first,
+    )
+    assert has_conflict is False
+
+    # Save an actual appointment in the database to test conflicts against
+    appointment = models.Appointment(
+        user_id=test_user.id,
+        service_id=test_service.id,
+        start_time=start_time_first,
+        end_time=end_time_first,
+    )
+    db_session.add(appointment)
+    await db_session.commit()
+
+    # Define an overlapping slot and test for CONFLICT (should return True)
+    start_time_overlapping = start_time_first + timedelta(minutes=15)
+    end_time_overlapping = start_time_overlapping + timedelta(minutes=test_service.duration)
+
+    has_conflict_true = await crud.check_appointment_conflict(
+        db=db_session,
+        start_time=start_time_overlapping,
+        end_time=end_time_overlapping,
+    )
+    assert has_conflict_true is True
+
 
 # 404 error when attempting to book a non-existent service
 @pytest.mark.asyncio

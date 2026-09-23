@@ -128,7 +128,7 @@ async def test_user_login_invalid_credentials(
     assert response.json()["detail"] == expected_detail
 
 
-# test Send a link with a new token if a user forgot his password
+# testing POST Endpoint: send a link with a new token if a user forgot his password
 @pytest.mark.anyio
 async def test_forgot_password_sends_email(client: AsyncClient, auth_client: AsyncClient,db_session: AsyncSession):
 
@@ -164,6 +164,47 @@ async def test_forgot_password_sends_email(client: AsyncClient, auth_client: Asy
         reset_token = token_result.scalars().first()
         assert reset_token is not None
         assert reset_token.expires_at is not None
+
+
+# Unit test
+@pytest.mark.anyio
+async def test_crud_create_reset_token(db_session: AsyncSession):
+    # Create and save user in db
+    user = models.User(
+        username="Eva",
+        email="eva@example.com",
+        phone="0123456789",
+        password_hash="hashed_password",
+    )
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
+
+    # Define test data for the reset token
+    test_token = "hashed_token"
+    test_expiration = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    # Execute the CRUD function
+    reset_token = await crud.create_reset_token(
+        db=db_session,
+        user_id=user.id,
+        token_hash=test_token,
+        expires_at=test_expiration,
+    )
+    assert reset_token is not None
+    assert reset_token.user_id == user.id
+    assert reset_token.token_hash == test_token
+    assert reset_token.expires_at == test_expiration
+
+    # Cover crud get_reset_token function
+    fetched_token = await crud.get_reset_token(db=db_session, token_hash=test_token)
+    assert fetched_token is not None
+    assert fetched_token.user_id == user.id
+
+    # Verify non-existent token returns None
+    non_existent_token = await crud.get_reset_token(db=db_session, token_hash="invalid_token")
+    assert non_existent_token is None
+
 
 
 # Request for a non-existent user (Security / Non-enumeration test)

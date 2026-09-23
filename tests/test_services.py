@@ -2,10 +2,12 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
+import crud
 import models
+import schemas
 from main import app
 from security import get_current_user, password_hash
-from tests.conftest import admin_client, auth_client, other_auth_client
+from tests.conftest import admin_client, auth_client, other_auth_client, db_session
 from fastapi import status
 
 # testing POST Endpoint: Creates a new service
@@ -28,6 +30,7 @@ async def test_create_service_success(admin_client: AsyncClient):
     for key, value in payload.items():
         assert data[key] == value
 
+
 # Sad Path: Non-Admin / Regular User
 @pytest.mark.anyio
 async def test_create_service_as_regular_user(auth_client: AsyncClient):
@@ -43,6 +46,7 @@ async def test_create_service_as_regular_user(auth_client: AsyncClient):
     response = await auth_client.post("/api/services", json=payload)
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 # Create service with invalid payload
 @pytest.mark.anyio
@@ -99,6 +103,16 @@ async def test_get_services_with_pagination(admin_client: AsyncClient, auth_clie
     assert data["limit"] == 2
 
 
+# Unit test
+@pytest.mark.anyio
+async def test_crud_get_services(db_session: AsyncSession, test_service: models.Service):
+    services, total = await crud.get_services(db_session, skip=0, limit=10)
+    assert total == 1
+    assert len(services) == 1
+    assert services[0].id == test_service.id
+    assert services[0].name == test_service.name
+
+
 # empty state
 @pytest.mark.anyio
 async def test_get_services_empty(client: AsyncClient):
@@ -140,6 +154,14 @@ async def test_get_service_success(client: AsyncClient, test_service: models.Ser
     assert data["duration"] == test_service.duration
 
 
+# Unit test
+@pytest.mark.anyio
+async def test_crud_get_service_by_id(db_session: AsyncSession, test_service: models.Service):
+    service = await crud.get_service_by_id(db_session, test_service.id)
+    assert service is not None
+    assert service.id == test_service.id
+
+
 # Retrieve a non-existent service ID
 @pytest.mark.anyio
 async def test_get_service_not_found(client: AsyncClient):
@@ -174,6 +196,21 @@ async def test_update_service_success_admin(
     assert data["name"] == test_service.name
     assert data["description"] == test_service.description
     assert data["duration"] == test_service.duration
+
+
+# Unit test
+@pytest.mark.anyio
+async def test_crud_partial_service_update(auth_client: AsyncClient, test_service: models.Service, db_session: AsyncSession):
+    updated_service = schemas.ServiceUpdate(price=50)
+
+    service = await crud.partial_service_update(
+        db_session,
+        service=test_service,
+        service_update=updated_service,
+    )
+    assert service.price == 50
+    assert service.name == test_service.name
+    assert service.description == test_service.description
 
 # Unauthorized: guest can't update service details
 @pytest.mark.anyio
