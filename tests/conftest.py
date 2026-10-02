@@ -1,25 +1,24 @@
 import os
-import uuid
-from collections.abc import AsyncGenerator
 import sys
-from datetime import datetime, timezone, timedelta
 
-import pytest
-import asyncio
-
-import models
-from security import password_hash, create_access_token, get_current_admin
-
-#  Windows Selector Policy (Must run BEFORE event loop creation)
-if sys.platform == "win32":
-    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-#Environment Isolation for Testing
+# Environment Isolation for Testing. Set before any app imports
 os.environ["DATABASE_URL"] = (
         "postgresql+psycopg://postgres:6925koza@localhost:5432/beauty_db_test"
 )
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 
+#  Windows Selector Policy (Must run BEFORE event loop creation)
+if sys.platform == "win32":
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+# Import app modules AFTER environment setup
+from datetime import datetime, timezone, timedelta
+import pytest
+import models
+from security import password_hash, create_access_token, get_current_admin
+import uuid
+from collections.abc import AsyncGenerator
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -207,6 +206,7 @@ async def guest_client(
     )
     db_session.add(appointment)
     await db_session.commit()
+    await db_session.refresh(appointment)
 
     # Store metadata directly on the AsyncClient instance
     client.guest_token = token
@@ -219,6 +219,7 @@ async def guest_client(
 async def client(
     db_session: AsyncSession,
 ) -> AsyncGenerator[AsyncClient]:
+
     # 1. Dependency Override: Replace the real database dependency with our test session
     async def override_get_db():
         yield db_session

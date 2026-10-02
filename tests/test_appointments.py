@@ -1,16 +1,21 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.functions import user
+from sqlalchemy.sql.functions import user, current_user
 import crud
 import models
 import schemas
+from routers import appointments
 from security import create_access_token
-from tests.conftest import auth_client, other_auth_client, db_session
-from fastapi import status
+
+from fastapi import status, HTTPException
+
+from tests.conftest import guest_client
 
 
 # testing POST Endpoint: create an appointment
@@ -33,6 +38,78 @@ async def test_create_appointment_success(client: AsyncClient, test_service: mod
     assert data["service_id"] == test_service.id
     assert "id" in data
     assert "end_time" in data
+
+# Unit test: create an appointment with success
+@pytest.mark.asyncio
+async def test_create_appointment(db_session, test_service, test_user):
+    # Create the input schema payload expected by the endpoint
+    new_appointment = schemas.AppointmentCreate(
+        service_id=test_service.id,
+        start_time=datetime.now(timezone.utc),
+        client_name="Elena Rossi",
+        client_phone="+393123456709",
+        client_email="elena@example.com"
+    )
+
+    # Call the router function
+    created_appointment = await appointments.create_appointment(
+        db=db_session,
+        appointment=new_appointment,
+    )
+    assert created_appointment is not None
+    assert created_appointment.user_id is not None
+
+
+# Unit test: create an appointment with unexisted service
+@pytest.mark.asyncio
+async def test_create_appointment_unexisted_service(db_session, test_service, test_user):
+    # Create the input schema payload expected by the endpoint
+    new_appointment = schemas.AppointmentCreate(
+        service_id=99999, # Non-existent ID
+        start_time=datetime.now(timezone.utc),
+        client_name="Elena Rossi",
+        client_phone="+393123456709",
+        client_email="elena@example.com"
+    )
+
+    # Expect an HTTPException to be raised
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.create_appointment(
+            db=db_session,
+            appointment=new_appointment,
+        )
+
+    # Verify the exception details
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Service not found"
+
+
+# Unit test: create an appointment with conflict
+@pytest.mark.asyncio
+async def test_create_appointment_conflict(db_session, test_service, guest_client):
+    # Grab the existing appointment from the guest_client fixture
+    existed_appointment = guest_client.appointment
+
+    # Build a new payload reusing the exact same start_time
+    new_appointment = schemas.AppointmentCreate(
+        service_id=test_service.id,
+        start_time=existed_appointment.start_time,
+        client_name="Elena Rossi",
+        client_phone="+393123456709",
+        client_email="elena@example.com"
+    )
+
+    # Expect an HTTPException to be raised
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.create_appointment(
+            db=db_session,
+            appointment=new_appointment,
+        )
+
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == "Time slot already booked."
+
+
 
 # Unit test
 @pytest.mark.asyncio
@@ -72,6 +149,32 @@ async def test_crud_check_appointment_conflict(db_session: AsyncSession, test_se
         end_time=end_time_overlapping,
     )
     assert has_conflict_true is True
+
+
+# Unit test: check if a client with given number/email exists and return it. If not, create it
+@pytest.mark.asyncio
+async def test_crud_get_or_create_guest_user(test_user: models.User, db_session: AsyncSession):
+    # RETRIEVE EXISTING USER (matches by existing phone/email in test_user)
+    existed_user = await crud.get_or_create_guest_user(
+        db=db_session,
+        client_name=test_user.username,
+        client_phone=test_user.phone,
+        client_email=test_user.email,
+    )
+    assert existed_user.id == test_user.id
+    assert existed_user.email == test_user.email
+
+    # CREATE NEW GUEST (must use a UNIQUE phone/email not in DB)
+    guest = await crud.get_or_create_guest_user(
+        db=db_session,
+        client_name="Fenix Guest",
+        client_phone="300000000",
+        client_email="fenix@example.com"
+    )
+    assert guest.id is not None
+    assert guest.id != test_user.id
+    assert guest.email == "fenix@example.com"
+    assert guest.phone == "300000000"
 
 
 # 404 error when attempting to book a non-existent service
@@ -127,7 +230,7 @@ async def test_create_appointment_time_slot_conflict(
     assert res2.json()["detail"] == "Time slot already booked."
 
 
-# 422 Unprocessable Entity when schema validators fail
+# 422 Unprocessable Content when schema validators fail
 @pytest.mark.asyncio
 async def test_create_appointment_validation_error(
     client: AsyncClient, test_service: models.Service
@@ -142,7 +245,8 @@ async def test_create_appointment_validation_error(
 
     response = await client.post("/api/appointments", json=payload)
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
 
 
 # testing GET /me Endpoint - Retrieve appointments' details for the client
@@ -198,6 +302,35 @@ async def test_get_my_appointments_with_pagination(
     assert len(data["appointments"]) == 2
     assert data["skip"] == 2
     assert data["limit"] == 2
+
+
+# Unit test: get appointment of unexisted user
+@pytest.mark.anyio
+async def test_get_my_appointments_unexisted(db_session: AsyncSession,):
+    #  Create a dummy user object with an invalid ID in memory (not saved to DB)
+    dummy_user = SimpleNamespace(id=99999)
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.get_my_appointments(
+        current_user=dummy_user,
+        db=db_session,
+    )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "User not found"
+
+
+# Unit test: get appointments with success
+@pytest.mark.anyio
+async def test_get_my_appointments_success(db_session: AsyncSession, test_user):
+
+    result = await appointments.get_my_appointments(
+        db=db_session,
+        current_user=test_user,
+    )
+    assert "appointments" in result
+    assert "total" in result
+    assert result["skip"] == 0
+    assert result["limit"] == 10
+    assert result["has_more"] is False
 
 
 # Direct DB/CRUD unit test: retrieve appointments' details for non-existed user
@@ -289,6 +422,31 @@ async def test_get_guest_appointments(
     assert "admin_id" not in data["service"]
 
 
+# Unit test:get unexisted appointment
+@pytest.mark.anyio
+async def test_get_guest_appointments_unexisted(db_session: AsyncSession,):
+    # Pass unexisted token
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.get_guest_appointment(
+            db=db_session,
+            guest_token="wrong_token",
+        )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Appointment not found"
+
+
+# Unit test: success
+@pytest.mark.anyio
+async def test_get_guest_appointments_success(db_session: AsyncSession, guest_client: AsyncClient):
+    # Extract token from our guest_client
+    token = guest_client.appointment.guest_token
+    result = await appointments.get_guest_appointment(
+        db=db_session,
+        guest_token=token,
+    )
+    assert result.id == guest_client.appointment.id
+    assert result.guest_token == token
+
 # appointment not found
 @pytest.mark.anyio
 async def test_get_guest_appointment_not_found(client: AsyncClient):
@@ -307,6 +465,69 @@ async def test_get_my_appointments_guest_failed(guest_client: AsyncClient):
 
     oversized_limit = await guest_client.get("/api/services?limit=999")
     assert oversized_limit.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+# get appointment by token
+@pytest.mark.anyio
+async def test_get_appointment_by_token(guest_client: AsyncClient):
+    # Retrieve the token attached by the fixture
+    token = guest_client.guest_token
+
+    # Make the HTTP request to your API router endpoint
+    response = await guest_client.get(f"/api/appointments/guest/{token}")
+
+    assert response.status_code == 200
+    data = response.json()
+
+    # Assert fields defined in AppointmentClientView
+    assert data["id"] == guest_client.appointment.id
+    assert "start_time" in data
+    assert "service" in data
+
+
+# Unit test: crud get appointment by token
+@pytest.mark.anyio
+async def test_crud_get_appointment_by_token(guest_client: AsyncClient, db_session: AsyncSession):
+    token = guest_client.guest_token
+
+    appointment = await crud.get_appointment_by_token(db=db_session, token=token)
+    assert appointment is not None
+    assert appointment.guest_token == token
+    assert appointment.guest_name == guest_client.appointment.guest_name
+    assert appointment.service.id == guest_client.appointment.service_id
+
+# Unit test: invalid token return None
+@pytest.mark.anyio
+async def test_crud_get_appointment_invalid_token(guest_client: AsyncClient, db_session: AsyncSession):
+    appointment = await crud.get_appointment_by_token(db=db_session, token="invalid")
+    assert appointment is None
+
+# Unit test: crud get user appointment by id
+@pytest.mark.anyio
+async def test_crud_get_user_appointment_by_id(guest_client: AsyncClient, db_session):
+    appointment_id = guest_client.appointment.id
+    user_id = guest_client.appointment.user_id
+
+    appointment = await crud.get_user_appointment_by_id(
+        db=db_session,
+        appointment_id=appointment_id,
+        user_id=user_id)
+
+    assert appointment is not None
+    assert appointment.id == appointment_id
+    assert appointment.user_id == user_id
+
+# Unit test: crud get appointment by id
+@pytest.mark.anyio
+async def test_crud_get_appointment_by_id(guest_client: AsyncClient, db_session, test_service):
+    appointment_id = guest_client.appointment.id
+    admin_id = test_service.admin_id
+
+    appointment = await crud.get_appointment_by_id(db_session, appointment_id, admin_id)
+
+    assert appointment is not None
+    assert appointment.id == appointment_id
+    assert appointment.service_id == test_service.id
 
 
 # testing PATCH Endpoint: update appointment by admin
@@ -344,6 +565,74 @@ async def test_update_appointment_success_admin(
     assert data["start_time"] == new_start_time.isoformat().replace("+00:00", "Z")
 
 
+# Unit test: update appointment success
+@pytest.mark.anyio
+async def test_update_appointment_admin_success(
+        db_session: AsyncSession,
+        guest_client: AsyncClient,
+        admin_user: models.Admin,):
+    # Fetch existed appointment from our guest_client fixture
+    appointment = guest_client.appointment
+
+    # Update a start time of appointment
+    updated_appointment = schemas.AppointmentUpdate(
+        start_time= datetime.now(timezone.utc),
+        service_id=appointment.service_id,
+    )
+    result = await appointments.update_appointment_admin(
+        db=db_session,
+        appointment_id= appointment.id,
+        appointment_update=updated_appointment,
+        current_admin=admin_user,
+    )
+
+    assert result is not None
+    assert result.id == appointment.id
+
+
+# Unit test: appointment not found
+@pytest.mark.anyio
+async def test_update_appointment_not_found(db_session, admin_user):
+
+    updated_appointment = schemas.AppointmentUpdate()
+
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.update_appointment_admin(
+        db=db_session,
+        appointment_id=9999,
+        appointment_update=updated_appointment,
+        current_admin=admin_user,
+    )
+
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Appointment not found"
+
+# Unit test: appointment with service id that doesn't exist
+@pytest.mark.anyio
+async def test_update_appointment_service_not_found(
+        db_session: AsyncSession,
+        guest_client: AsyncClient,
+        admin_user: models.Admin,):
+
+    # Fetch existed appointment from our guest_client fixture
+    appointment = guest_client.appointment
+
+    # Update an appointment with unexisted service id
+    updated_appointment = schemas.AppointmentUpdate(
+        start_time= datetime.now(timezone.utc),
+        service_id=9999,
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.update_appointment_admin(
+        db=db_session,
+        appointment_id= appointment.id,
+        appointment_update=updated_appointment,
+        current_admin=admin_user,
+    )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Service not found"
+
+
 # Updating an appointment with invalid service
 @pytest.mark.anyio
 async def test_update_appointment_admin_failed(admin_client: AsyncClient, client: AsyncClient, test_service: models.Service):
@@ -368,7 +657,7 @@ async def test_update_appointment_admin_failed(admin_client: AsyncClient, client
         json={"service_id": invalid_service_id},
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
-    assert response.json()["detail"] == f"Service with id {invalid_service_id} does not exist"
+    assert response.json()["detail"] == "Service not found"
 
 
 # Unauthorized / non-admin access
@@ -423,6 +712,40 @@ async def test_update_appointment_admin_invalid(
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+# Unit test: crud appointment_update_by_admin
+@pytest.mark.anyio
+async def test_crud_appointment_update(db_session: AsyncSession, guest_client: AsyncClient,):
+    appointment = guest_client.appointment
+    new_start_time = datetime.now(timezone.utc)
+
+    appointment_update=schemas.AppointmentUpdate(
+        start_time=new_start_time,
+        service_id=appointment.service_id,
+    )
+    updated_appointment = await crud.update_appointment(
+        db=db_session,
+        appointment=appointment,
+        appointment_update=appointment_update,)
+
+    assert appointment is not None
+    assert updated_appointment.id == appointment.id
+    assert updated_appointment.start_time == new_start_time
+    assert updated_appointment.service_id == appointment.service_id
+
+    # unexisted service_id
+    appointment_update_invalid = schemas.AppointmentUpdate(
+        start_time=new_start_time,
+        service_id=99999,
+    )
+    unexisted_service = await crud.update_appointment(
+        db=db_session,
+        appointment=appointment,
+        appointment_update=appointment_update_invalid,
+    )
+    assert unexisted_service is None
+
+
+
 # testing PATCH Endpoint: update appointment by logged-in user
 @pytest.mark.anyio
 async def test_update_appointment_success_user(
@@ -456,6 +779,86 @@ async def test_update_appointment_success_user(
     data = response.json()
 
     assert data["start_time"] == new_start_time.isoformat().replace("+00:00", "Z")
+
+
+# Unit test: update appointment by user - success
+@pytest.mark.anyio
+async def test_update_appointment_user_success(
+        db_session: AsyncSession,
+        test_user: models.User,
+        test_service: models.Service
+):
+    # test_user create an appointment
+    appointment = models.Appointment(
+        service_id=test_service.id,
+        user_id=test_user.id,
+        start_time=datetime.now(timezone.utc),
+        guest_name=test_user.username,
+        guest_phone=test_user.phone,
+        guest_email=test_user.email,
+        end_time=datetime.now(timezone.utc),
+    )
+    db_session.add(appointment)
+    await db_session.commit()
+    await db_session.refresh(appointment)
+
+    # update an appointment
+    updated_appointment = schemas.AppointmentUpdate(
+        start_time=datetime.now(timezone.utc)+ timedelta(days=1),
+        service_id=test_service.id,
+    )
+
+    result = await appointments.update_appointment_user(
+        db=db_session,
+        appointment_id=appointment.id,
+        appointment_update=updated_appointment,
+        current_user=test_user,
+    )
+
+    assert result is not None
+    assert result.id == appointment.id
+
+
+# Unit test: update unexisted appointment
+@pytest.mark.anyio
+async def test_update_appointment_user_failure(
+        db_session: AsyncSession,
+        test_user: models.User,
+):
+    # update an appointment
+    updated_appointment = schemas.AppointmentUpdate()
+
+    with pytest.raises(HTTPException) as exc_info:
+     await appointments.update_appointment_user(
+        db=db_session,
+        appointment_id=99999,
+        appointment_update=updated_appointment,
+        current_user=test_user,
+    )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == "Appointment not found"
+
+
+# Unit test:update appointment with non-existent service ID
+@pytest.mark.anyio
+async def test_update_appointment_user_invalid_service(
+        db_session: AsyncSession,
+        guest_client):
+
+    #  Match current_user.id to the appointment's actual owner
+    owner = SimpleNamespace(id=guest_client.appointment.user_id)
+
+    updated_appointment = schemas.AppointmentUpdate(service_id=99999)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await appointments.update_appointment_user(
+            db=db_session,
+            appointment_id=guest_client.appointment.id,
+            appointment_update=updated_appointment,
+            current_user=owner,
+        )
+    assert exc_info.value.status_code == 404
+    assert exc_info.value.detail == f"Service with id {updated_appointment.service_id} does not exist"
 
 
 # Forbidden: User A can't update Users' B appointment

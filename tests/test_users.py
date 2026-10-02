@@ -6,8 +6,10 @@ import crud
 import models
 import schemas
 from crud import get_user_by_email, get_user_by_username, partial_user_update
-from tests.conftest import create_test_user, auth_client
+
 from fastapi import status
+
+from tests.conftest import create_test_user
 
 
 # testing POST Endpoint: Create a new user
@@ -49,7 +51,7 @@ async def test_create_user_validation_error(client: AsyncClient):
 
 # Failure: Creating user with email that already exists
 @pytest.mark.anyio
-async def test_create_user_duplicate_email(client: AsyncClient):
+async def test_create_user_duplicate_email(client: AsyncClient,):
 
     await create_test_user(client)
 
@@ -68,7 +70,7 @@ async def test_create_user_duplicate_email(client: AsyncClient):
 
 # Failure: Creating user with username that already exists
 @pytest.mark.anyio
-async def test_create_user_duplicate_username(client: AsyncClient):
+async def test_create_user_duplicate_username(client: AsyncClient,):
     await create_test_user(client)
 
     response = await client.post(
@@ -86,7 +88,7 @@ async def test_create_user_duplicate_username(client: AsyncClient):
 
 # Failure: Creating user with a phone that already exists
 @pytest.mark.anyio
-async def test_create_user_duplicate_phone(client: AsyncClient):
+async def test_create_user_duplicate_phone(client: AsyncClient,):
     await create_test_user(client)
 
     response = await client.post(
@@ -330,7 +332,7 @@ async def test_non_authenticated_user_update_failed(client: AsyncClient):
 
 # conflict (409) if user wants to update his profile with username that already exist
 @pytest.mark.anyio
-async def test_user_update_conflict(auth_client: AsyncClient, client: AsyncClient):
+async def test_user_update_conflict(auth_client: AsyncClient, client: AsyncClient,):
     # Create user
     existing_user = await create_test_user(
         client,

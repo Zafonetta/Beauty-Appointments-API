@@ -107,7 +107,7 @@ async def update_appointment_admin(
         )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.appointment_update_by_admin(
+    updated_appointment = await crud.update_appointment(
         db=db,
         appointment_update=appointment_update,
         appointment=appointment,
@@ -115,7 +115,7 @@ async def update_appointment_admin(
     if updated_appointment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Service with id {appointment_update.service_id} does not exist",
+            detail="Service not found",
         )
     return updated_appointment
 
@@ -138,14 +138,9 @@ async def update_appointment_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Appointment not found",
         )
-    if appointment.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="You are not authorized to perform this action",
-        )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.appointment_update_by_user(
+    updated_appointment = await crud.update_appointment(
         db=db,
         appointment_update=appointment_update,
         appointment=appointment,
@@ -176,7 +171,7 @@ async def update_appointment_guest(
         )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.appointment_update_by_user(
+    updated_appointment = await crud.update_appointment(
         db=db,
         appointment_update=appointment_update,
         appointment=appointment,

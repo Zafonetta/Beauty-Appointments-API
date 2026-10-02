@@ -7,7 +7,7 @@ import models
 import schemas
 from main import app
 from security import get_current_user, password_hash
-from tests.conftest import admin_client, auth_client, other_auth_client, db_session
+
 from fastapi import status
 
 # testing POST Endpoint: Creates a new service

@@ -344,50 +344,6 @@ async def check_appointment_conflict(
     return existing_appointment is not None
 
 
-# Helper function
-async def get_available_slots_for_date(
-    db: AsyncSession,
-    booking_date: datetime.date,
-    duration_minutes: int,
-    slot_interval_minutes: int = 120,  # Offers slots every 2 hours
-) -> list[datetime]:
-    # Define working hours for the day (10:00 AM to 7:00 PM)
-    work_start = datetime.combine(booking_date, time(10, 0),tzinfo=ZoneInfo("Europe/Rome"))
-    work_end = datetime.combine(booking_date, time(19, 0),tzinfo=ZoneInfo("Europe/Rome"))
-
-    # Fetch all existing appointments for that specific date
-    query = select(models.Appointment).where(
-        and_(
-            models.Appointment.start_time >= work_start,
-            models.Appointment.start_time < work_end,
-        )
-    )
-    result = await db.execute(query)
-    existing_appointments = result.scalars().all()
-
-    # Generate candidate slots and check for conflicts
-    available_slots = []
-    # pointer that continuously shifts forward after each check (e.g., 10:00 AM →12:00 PM →2:00 PM)
-    current_slot_start = work_start
-
-    while current_slot_start + timedelta(minutes=duration_minutes) <= work_end:
-        current_slot_end = current_slot_start + timedelta(minutes=duration_minutes)
-
-        # Overlap check: slot overlaps if existing_start < new_end AND existing_end > new_start
-        has_conflict = any(
-            appt.start_time < current_slot_end and appt.end_time > current_slot_start
-            for appt in existing_appointments
-        )
-
-        if not has_conflict:
-            available_slots.append(current_slot_start)
-
-        # Move forward by the interval step (e.g., check 10:00, 12:00, 14:00...)
-        current_slot_start += timedelta(minutes=slot_interval_minutes)
-
-    return available_slots
-
-
 async def get_or_create_guest_user(
     db: AsyncSession,
     client_name: str,
@@ -410,12 +366,10 @@ async def get_or_create_guest_user(
 
     # Create user if neither phone nor email was found
     if not user:
-        effective_email = clean_email
-
         user = models.User(
             username=client_name.strip(),
             phone=clean_phone,
-            email=effective_email,
+            email=clean_email,
             password_hash="GUEST_NO_PASSWORD",  # Satisfies NOT NULL constraint
         )
         db.add(user)
@@ -484,36 +438,7 @@ async def get_appointment_by_id(db: AsyncSession, appointment_id: int, admin_id:
     return result.scalars().first()
 
 # appointment update by admin
-async def appointment_update_by_admin(
-        db: AsyncSession,
-        appointment: models.Appointment,
-        appointment_update: schemas.AppointmentUpdate,
-        ) -> models.Appointment | None:
-
-    update_data = appointment_update.model_dump(exclude_unset=True)
-
-    #  Validate service existence if service_id is being updated
-    if "service_id" in update_data and update_data["service_id"] is not None:
-        target_service = await db.get(models.Service, update_data["service_id"])
-        if not target_service:
-            return None
-    # Update basic fields
-    for field, value in update_data.items():
-        setattr(appointment, field, value)
-
-        # Recalculate end_time if start_time or service changed
-        if "start_time" in update_data or "service_id" in update_data:
-            # Fetch service to get duration
-            service = await db.get(models.Service, appointment.service_id)
-            if service:
-                appointment.end_time = appointment.start_time + timedelta(minutes=service.duration)
-
-    await db.commit()
-    await db.refresh(appointment, attribute_names=["service"])
-    return appointment
-
-# appointment update by user
-async def appointment_update_by_user(
+async def update_appointment(
         db: AsyncSession,
         appointment: models.Appointment,
         appointment_update: schemas.AppointmentUpdate,
