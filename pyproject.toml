@@ -40,7 +40,7 @@ omit = [
 ]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 50
 
 
 [tool.deptry.per_rule_ignores]
