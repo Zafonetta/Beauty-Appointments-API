@@ -3,10 +3,13 @@ name = "beautyappointments"
 version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
+    "aiosmtplib>=5.1.3",
     "asyncpg>=0.31.0",
     "fastapi[standard]>=0.140.0",
+    "passlib[bcrypt]>=1.7.4",
     "psycopg[binary]>=3.3.4",
     "pwdlib[argon2]>=0.3.0",
+    "pydantic>=2.13.4",
     "pyjwt>=2.15.1",
     "sqlalchemy>=2.0.51",
 ]
@@ -34,3 +37,13 @@ omit = [
 
 [tool.coverage.report]
 fail_under = 80
+
+
+[tool.deptry.per_rule_ignores]
+DEP001 = ["jwt"]  # Map import 'jwt' to package 'pyjwt'
+
+[tool.deptry.package_module_name_map]
+pyjwt = "jwt"
+
+[tool.deptry]
+ignore = ["DEP002"]  # Ignores unused warnings for database drivers like asyncpg

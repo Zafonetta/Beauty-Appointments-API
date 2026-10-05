@@ -5,12 +5,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Annotated
 
 import jwt
-from fastapi import Depends
+from fastapi import Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from sqlalchemy import select
-from starlette import status
-from starlette.exceptions import HTTPException
+
 
 from config import settings
 import models
