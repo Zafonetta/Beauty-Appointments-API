@@ -2,7 +2,7 @@
 from email.message import EmailMessage
 
 import aiosmtplib  # securely connect to Mailtrap across the network and transmit the message data packets
-from starlette.templating import Jinja2Templates
+from fastapi.templating import Jinja2Templates
 
 from config import settings
 
