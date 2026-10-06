@@ -2,9 +2,11 @@ import os
 import sys
 
 # Environment Isolation for Testing. Set before any app imports
-os.environ["DATABASE_URL"] = (
-        "postgresql+psycopg://postgres:6925koza@localhost:5432/beauty_db_test"
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+asyncpg://postgres:postgrespassword@localhost:5432/beauty_db_test"
 )
+
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 
 #  Windows Selector Policy (Must run BEFORE event loop creation)
