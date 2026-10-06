@@ -18,7 +18,7 @@ jobs:
           POSTGRES_PASSWORD: postgrespassword
           POSTGRES_DB: test_db
         ports:
-          - 5433:5432
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -26,6 +26,9 @@ jobs:
           --health-retries 5
 
     steps:
+      - name: Stop default Ubuntu PostgreSQL service
+        run: sudo systemctl stop postgresql
+
       - name: Check out repository
         uses: actions/checkout@v4
 
@@ -42,12 +45,12 @@ jobs:
 
       - name: Run Pytest Suite
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@localhost:5433/test_db
+          DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@localhost:5432/test_db
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgrespassword
           POSTGRES_DB: test_db
           POSTGRES_HOST: localhost
-          POSTGRES_PORT: 5433
+          POSTGRES_PORT: 5432
           SECRET_KEY: ci_test_secret_key_change_me_in_prod
           ALGORITHM: HS256
           ACCESS_TOKEN_EXPIRE_MINUTES: 30
@@ -55,4 +58,3 @@ jobs:
           ADMIN_PASSWORD: admin123
         run: |
           uv run pytest
-          
