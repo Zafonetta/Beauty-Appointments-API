@@ -9,6 +9,7 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",#even if you have special characters in your keys or passwords, Python reads them correctly.
     )
     database_url: str
+
 #Security Defaults
     secret_key: SecretStr #It tells Pydantic that this value is a secret
     algorithm: str = "HS256" #This is the encryption standard used for your JWTs, "HS256" is the standard, reliable algorithm for signing tokens.
