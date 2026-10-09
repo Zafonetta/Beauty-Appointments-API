@@ -11,7 +11,7 @@ A high-performance, asynchronous REST API for a beauty salon platform built with
 ## 🚀 Live Demo & API Documentation
 The application is fully containerized and deployed on **Google Cloud Run** connected to a serverless **Neon PostgreSQL** database.
 
-* 📖 **Interactive Swagger UI Docs:** [https://beauty-api-67591101232.europe-west1.run.app/docs](https://beauty-api-67591101232.europe-west1.run.app/docs)
+* 📖 **Interactive Swagger UI Docs:** [Open Swagger API Docs](https://beauty-api-675911101232.europe-west1.run.app)
 
 ## 🛠️ Tech Stack & Infrastructure
 * **Framework:** FastAPI (Python 3.13)
