@@ -1,4 +1,5 @@
 # Database connection & engine setup
+import ssl
 from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -7,7 +8,14 @@ from config import settings
 
 
 # Create the asynchronous engine using our URL from .env
-engine = create_async_engine(settings.database_url)
+#engine = create_async_engine(settings.database_url,)
+# Create a secure SSL context for asyncpg
+# database.py
+
+engine = create_async_engine(
+    settings.database_url,
+    connect_args={"ssl": "require"}
+)
 
 #  async_sessionmaker for session creation
 AsyncSessionLocal = async_sessionmaker(

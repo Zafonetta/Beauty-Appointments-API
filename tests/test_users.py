@@ -104,6 +104,23 @@ async def test_create_user_duplicate_phone(client: AsyncClient,):
     assert response.json()["detail"] == "Phone is already registered"
 
 
+# Failure: create user with the wrong phone number(str instead a num)
+@pytest.mark.anyio
+async def test_create_user_wrong_number(client: AsyncClient):
+
+    response = await client.post(
+        "/api/users",
+        json={
+            "username": "testuser",
+            "email": "test@example.com",
+            "password": "password123",
+            "phone": "Alina", # Invalid format
+        }
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
+
+
+
 # testing GET /me endpoint
 # SUCCESS CASE: Authenticated user fetches their own profile
 @pytest.mark.anyio

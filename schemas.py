@@ -11,9 +11,9 @@ class Token(BaseModel):
 # USER SCHEMAS
 #The Blueprint (Shared by everyone, but never used alone)
 class UserBase(BaseModel):
-    username: str = Field(min_length=1, max_length=50)
+    username: str = Field(min_length=1, max_length=50,)
     email: EmailStr = Field(max_length=120)
-    phone: str | None = Field(default=None, min_length=1, max_length=20)
+    phone: str | None = Field(default=None, min_length=1, max_length=20,pattern=r"^\+?[0-9\s\-\(\)]{7,20}$")
 
 # Registration (Request Body)
 class UserCreate(UserBase):

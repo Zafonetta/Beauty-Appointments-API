@@ -3,14 +3,11 @@ import hashlib
 import secrets
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
-
 import jwt
 from fastapi import Depends, status, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pwdlib import PasswordHash
 from sqlalchemy import select
-
-
 from config import settings
 import models
 from database import DbSession
@@ -19,7 +16,7 @@ from database import DbSession
 #Set up a secure hashing instance that automatically selects the best available cryptographic algorithm
 password_hash = PasswordHash.recommended()
 
-# TOKEN SCHEMES (For Swagger UI & Header Extraction)
+# TOKEN SCHEMAS (For Swagger UI & Header Extraction)
 oauth = OAuth2PasswordBearer(
     tokenUrl="/api/auth/token",
     scheme_name="UserAuth")
@@ -31,7 +28,7 @@ oauth2 = OAuth2PasswordBearer(
 # FORM DATA ALIAS (Shared by both)
 OAuth2Form = Annotated[OAuth2PasswordRequestForm, Depends()]
 
-# Helper function to securely hash a plain-text password before saving it to the database
+# Helper function to securely hash a plain-text password before saving it to the database(pwdlib)
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
 
@@ -39,6 +36,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_hash.verify(plain_password, hashed_password)
 
+#Return a random URL-safe text string, in Base64 encoding
 def generate_reset_token() -> str:
     return secrets.token_urlsafe(32)
 
