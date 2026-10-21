@@ -1,13 +1,11 @@
 # FastAPI entry point & routes
 from contextlib import asynccontextmanager
 from typing import Annotated
-
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
 import models  # noqa: F401
 from database import engine, get_db
 from routers import users, auth, services, appointments
@@ -15,6 +13,7 @@ from routers import users, auth, services, appointments
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    """Handles startup and shutdown events"""
     yield
 # Cleanly close all connections in the connection pool and free up resources
     await engine.dispose()
@@ -38,9 +37,9 @@ async def root():
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Restrict to specific domains in production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_credentials=True, # Allow cookies / authorization headers
+    allow_methods=["*"], # Allow all HTTP methods (GET, POST, PUT, DELETE, etc.)
+    allow_headers=["*"], # Allow all headers (like Authorization, Content-Type)
 )
 
 # Register API Routers

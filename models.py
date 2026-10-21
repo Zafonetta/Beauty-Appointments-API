@@ -20,11 +20,12 @@ class User(Base):
     appointments: Mapped[list["Appointment"]] = relationship(
         "Appointment",
         back_populates="client",
-        cascade="all, delete, delete-orphan") #Automatically deletes appointments when user is deleted
+        cascade="all, delete-orphan") #Automatically deletes appointments when user is deleted
+
     services: Mapped[list["Service"]] = relationship(
         "Service",
         back_populates="client",
-        cascade="all, delete, delete-orphan")
+        cascade="all, delete-orphan")
 
     reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
         "PasswordResetToken",
@@ -44,11 +45,11 @@ class Appointment(Base):
     end_time: Mapped[datetime.datetime] = mapped_column(DateTime(timezone=True),)
     guest_token: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
 
-    # User Foreign Key and many-to-one relationship
+    # Many-to-one relationship and User Foreign Key
     client: Mapped["User"] = relationship("User", back_populates="appointments", lazy="selectin")
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
 
-    # Service Foreign Key and many-to-one relationship
+    # Many-to-one relationship and User Foreign Key
     service: Mapped["Service"] = relationship("Service", back_populates="appointments", lazy="selectin")
     service_id: Mapped[int] = mapped_column(ForeignKey("services.id"))
 
@@ -56,6 +57,7 @@ class Appointment(Base):
     guest_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     guest_email: Mapped[str | None] = mapped_column(String(120), nullable=True)
     guest_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
 
 class Service(Base):
     __tablename__ = "services"
@@ -73,8 +75,8 @@ class Service(Base):
     user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     client: Mapped["User"] = relationship("User", back_populates="services")
 
-    # Admin Foreign Key column referencing admin.id and relationship
-    admin_id: Mapped[int] = mapped_column(ForeignKey("admin.id"), nullable=False)
+    # Admin Foreign Key and relationship
+    admin_id: Mapped[int] = mapped_column(ForeignKey("admin.id", ondelete="SET NULL"), nullable=True)
     admin: Mapped["Admin"] = relationship("Admin", back_populates="services")
 
 
@@ -89,10 +91,7 @@ class Admin(Base):
     services: Mapped[list["Service"]] = relationship(
         "Service",
         back_populates="admin",
-        cascade="all, delete-orphan"
     )
-
-
 
 
 class PasswordResetToken(Base):

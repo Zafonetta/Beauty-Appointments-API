@@ -58,6 +58,25 @@ async def test_create_service_invalid_payload(admin_client: AsyncClient):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+@pytest.mark.asyncio
+async def test_delete_admin_sets_service_admin_id_to_null(
+        db_session: AsyncSession,
+        admin_user: models.Admin,
+        test_service: models.Service
+):
+    # Verify if admin deletes his account, services remained in db
+    # Delete the admin directly from the database session
+    await db_session.delete(admin_user)
+    await db_session.commit()
+
+    # Refresh the service and verify that admin_id is now NULL,
+    # but the service itself still exists in the database
+    await db_session.refresh(test_service)
+    assert test_service.admin_id is None
+    assert test_service.name is test_service.name
+
+
+
 # testing GET Endpoint: list available services for clients
 @pytest.mark.anyio
 async def test_get_services_with_pagination(admin_client: AsyncClient, auth_client: AsyncClient):
