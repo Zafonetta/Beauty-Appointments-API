@@ -6,9 +6,7 @@ import crud
 import models
 import schemas
 from crud import get_user_by_email, get_user_by_username, partial_user_update
-
 from fastapi import status
-
 from tests.conftest import create_test_user
 
 
@@ -25,14 +23,14 @@ async def test_create_user_success(client: AsyncClient):
         },
     )
 
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["username"] == "newuser"
     assert data["email"] == "newuser@example.com"
     assert "id" in data
+    assert "phone" in data
     assert "password" not in data
     assert "password_hash" not in data
-    assert "phone" in data
 
 
 # Failure: Creating user with missing email and password
@@ -44,7 +42,7 @@ async def test_create_user_validation_error(client: AsyncClient):
         json={"username": "testuser",},
     )
 
-    assert response.status_code == 422
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
     assert "email" in response.text
     assert "password" in response.text
 
@@ -52,14 +50,14 @@ async def test_create_user_validation_error(client: AsyncClient):
 # Failure: Creating user with email that already exists
 @pytest.mark.anyio
 async def test_create_user_duplicate_email(client: AsyncClient,):
-
-    await create_test_user(client)
+    # Seed the test user and capture the returned user dict
+    existing_user = await create_test_user(client)
 
     response = await client.post(
         "/api/users",
         json={
             "username": "different_user",
-            "email": "test@example.com",
+            "email": existing_user["email"],
             "password": "password123",
             "phone": "0123456789",
         },
@@ -71,13 +69,13 @@ async def test_create_user_duplicate_email(client: AsyncClient,):
 # Failure: Creating user with username that already exists
 @pytest.mark.anyio
 async def test_create_user_duplicate_username(client: AsyncClient,):
-    await create_test_user(client)
+    existing_user = await create_test_user(client)
 
     response = await client.post(
         "/api/users",
         json={
-            "username": "testuser",
-            "email": "different@email.com",
+            "username": existing_user["username"],
+            "email": "different@example.com",
             "password": "different123",
             "phone": "3285596647",
         }
@@ -89,7 +87,7 @@ async def test_create_user_duplicate_username(client: AsyncClient,):
 # Failure: Creating user with a phone that already exists
 @pytest.mark.anyio
 async def test_create_user_duplicate_phone(client: AsyncClient,):
-    await create_test_user(client)
+    existing_user = await create_test_user(client)
 
     response = await client.post(
         "/api/users",
@@ -97,7 +95,7 @@ async def test_create_user_duplicate_phone(client: AsyncClient,):
             "username": "Marina",
             "email": "marina@email.com",
             "password": "different123",
-            "phone": "0123456789",
+            "phone": existing_user["phone"],
         }
     )
     assert response.status_code == status.HTTP_409_CONFLICT
@@ -128,10 +126,10 @@ async def test_get_current_user_success(auth_client: AsyncClient):
     # ACT: Send GET request using the pre-authenticated client
     response = await auth_client.get("/api/users/me")
     # ASSERT
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["username"] == "testuser"
-    assert data["email"] == "test@example.com"
+    assert data["username"] == auth_client.username
+    assert data["email"] == auth_client.email
 
 
 # FAILURE CASE: Requesting profile without Authorization header
@@ -139,7 +137,7 @@ async def test_get_current_user_success(auth_client: AsyncClient):
 async def test_get_current_user_failed(client: AsyncClient):
     # ACT: Send GET request using the non-authenticated client
     response = await client.get("/api/users/me")
-    assert response.status_code == 401
+
     # ASSERT: FastAPI auto-rejects missing credentials with 401
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
@@ -150,7 +148,7 @@ async def test_get_current_user_invalid(client: AsyncClient):
     # Construct headers with a malformed/expired JWT string
     invalid_headers = {"Authorization": f"Bearer invalid_or_expired_token_123"}
     response = await client.get("/api/users/me", headers=invalid_headers)
-    assert response.status_code == 401
+
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     # Verify error message payload from JWT validation failure
     assert "detail" in response.json()

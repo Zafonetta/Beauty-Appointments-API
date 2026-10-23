@@ -11,6 +11,7 @@ import schemas
 from security import hash_password
 
 
+
 # Helper: Fetch user by case-insensitive username
 async def get_user_by_username(db: AsyncSession, username: str) -> models.User | None:
     """Fetch user by username asynchronously (case-insensitive)."""
@@ -60,18 +61,19 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> models.User | None:
 
 async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
     """Hash the password and save a new user to the database."""
-    # 1. Hash the incoming raw password
+    # Hash the incoming raw password
     hashed_pwd = hash_password(user.password)
 
-    # 2. Extract input data(username, email, phone) excluding the plain-text password
+    # Extract input data(username, email, phone) excluding the plain-text password
     user_data = user.model_dump(exclude={"password"})
     user_data["email"] = user.email.lower()  # Normalize email in the dictionary
-    # 3. Instantiate the SQLAlchemy model
+
+    # Instantiate the SQLAlchemy model
     new_user = models.User(
         **user_data,
         password_hash=hashed_pwd,
     )
-    # 4. Save to DB
+    # Save to DB
     db.add(new_user)
     await db.commit()
     await db.refresh(new_user)
@@ -87,8 +89,8 @@ async def get_users(
         is_active: bool | None = None,
 ) -> tuple[list[models.User], int]:
     # Base Select & Count Statements
-    query = select(models.User) #query to fetch the actual user records
-    count_query = select(func.count(models.User.id)).select_from(models.User) #to compute the total number of matching rows in database
+    query = select(models.User) # query to fetch the actual user records
+    count_query = select(func.count(models.User.id)).select_from(models.User) # to compute the total number of matching rows in a database
 
     # Build Dynamic Filters
     filters = []
@@ -104,14 +106,14 @@ async def get_users(
         )
 
     if is_active is not None:
-        filters.append(models.User.is_active == is_active) #passing False filters for deactivated accounts
+        filters.append(models.User.is_active == is_active) # passing False filters for deactivated accounts
 
     # Apply Filters to Both Queries
     if filters:
         query = query.where(*filters)
         count_query = count_query.where(*filters)
 
-    #  Fetch Filtered Total Count
+    # Fetch Filtered Total Count
     total = await db.scalar(count_query) or 0
 
     # Paginated users query (using the filtered 'query' variable)
@@ -213,7 +215,7 @@ async def get_all_appointments_admin(
     return appointments, total
 
 
-#Partially update a user record in the database
+# Partially update a user record in the database
 async def partial_user_update(
         db: AsyncSession,
         user: models.User,
@@ -231,7 +233,7 @@ async def partial_user_update(
     return user
 
 
-async def delete_profile(db: AsyncSession,  user: models.User) -> None:
+async def delete_profile(db: AsyncSession, user: models.User) -> None:
     """Delete an existing user profile."""
     await db.delete(user)
     await db.commit()

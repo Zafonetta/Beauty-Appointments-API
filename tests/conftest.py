@@ -7,7 +7,7 @@ os.environ["DATABASE_URL"] = (
 )
 os.environ["SECRET_KEY"] = "test-secret-key-for-testing-only"
 
-#  Windows Selector Policy (Must run BEFORE event loop creation)
+# Windows Selector Policy (Must run BEFORE event loop creation)
 if sys.platform == "win32":
     import asyncio
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -34,6 +34,7 @@ pytest_plugins = ["anyio"]
 def anyio_backend():
     return "asyncio"
 
+
 @pytest.fixture(scope="session")
 def test_engine():
     # Creates an async database engine using the URL defined in our environment variables.
@@ -57,6 +58,7 @@ async def setup_database(test_engine):
         await conn.run_sync(Base.metadata.drop_all)
     # Close the engine connection completely
     await test_engine.dispose()
+
 
 @pytest.fixture
 async def db_session(
@@ -85,7 +87,6 @@ async def db_session(
             await session.close()
             await trans.rollback()
             await conn.close()
-
 
 
 # Standalone fixture that creates and returns the Admin record
@@ -139,6 +140,9 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
 
     # Store user payload on the client instance
     client.user_id = user["id"]
+    client.username = user["username"]
+    client.email = user["email"]
+
     return client
 
 
@@ -196,7 +200,7 @@ async def guest_client(
     # Seed the guest appointment in PostgreSQL
     appointment = models.Appointment(
         guest_token=token,
-        user_id=user.id,  # <-- Satisfies PostgreSQL NOT NULL constraint
+        user_id=user.id,  # Satisfies PostgreSQL NOT NULL constraint
         service_id=test_service.id,
         guest_name="Jane Guest",
         guest_email="jane@example.com",
@@ -252,7 +256,8 @@ async def test_user(
     await db_session.refresh(user)
     return user
 
-# Helpers & Auth Fixtures
+
+# Helpers
 async def create_test_user(
     client: AsyncClient,
     username: str = "testuser",

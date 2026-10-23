@@ -83,7 +83,7 @@ async def get_current_user(
     db: DbSession,
 ) -> models.User:
     user_id = verify_access_token(token)
-    if user_id is None: #means token is not valid or expire
+    if user_id is None: # means token is not valid or expire
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
@@ -91,7 +91,7 @@ async def get_current_user(
         )
 
     try:
-        user_id_int = int(user_id) #JWT tokens store data as strings, the code tries to safely convert that string into an integer.
+        user_id_int = int(user_id) # JWT tokens store data as strings, the code tries to safely convert that string into an integer.
     except (TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

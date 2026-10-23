@@ -1,7 +1,6 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-
 import pytest
 from httpx import AsyncClient
 from sqlalchemy import select
@@ -12,9 +11,7 @@ import models
 import schemas
 from routers import appointments
 from security import create_access_token
-
 from fastapi import status, HTTPException
-
 from tests.conftest import guest_client
 
 

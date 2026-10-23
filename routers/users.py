@@ -35,6 +35,7 @@ async def register_user(user: schemas.UserCreate,db: DbSession):
     #  Perform the creation via CRUD function
     return await crud.create_user(db=db, user=user)
 
+
 # GET /me - Retrieve profile details for the logged-in user
 @router.get("/me", response_model=schemas.UserPrivate)
 async def get_current_user(current_user: CurrentUser):
@@ -97,14 +98,6 @@ async def update_user(
                 detail="Forbidden.Not authorized to update this user",
         )
 
-        # Fetch target user if Admin is updating another account
-        target_user = current_user if user_id == current_user.id else await crud.get_user_by_id(db, user_id=user_id)
-        if not target_user:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
-            )
-
         # Check for Username collision (if changed)
         if (
                 user_update.username is not None
@@ -130,6 +123,7 @@ async def update_user(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="User with this email already exists",
                 )
+
         # Check for Phone collision (if changed)
         if (
             user_update.phone is not None
@@ -147,7 +141,6 @@ async def update_user(
             db=db, user=current_user, user_update=user_update
         )
         return updated_user
-
 
 
 # DELETE Endpoint: admin can delete users' profile
