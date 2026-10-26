@@ -142,6 +142,7 @@ async def auth_client(client: AsyncClient) -> AsyncClient:
     client.user_id = user["id"]
     client.username = user["username"]
     client.email = user["email"]
+    client.phone = user["phone"]
 
     return client
 

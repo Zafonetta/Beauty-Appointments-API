@@ -7,10 +7,11 @@ from config import settings
 from database import DbSession
 from security import CurrentAdmin
 
+
 # Initialize the router for services
 router = APIRouter()
 
-# POST Endpoint: Creates a new service
+# POST Endpoint: Admin creates a new service
 @router.post("",response_model=schemas.ServiceResponse,status_code=status.HTTP_201_CREATED)
 async def create_service(
     service: schemas.ServiceCreate,

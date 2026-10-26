@@ -168,27 +168,27 @@ async def test_get_all_users_admin_success(admin_client: AsyncClient, db_session
         )
         await crud.create_user(db = db_session, user=user_in)
 
-    # The total will include seeded users + the admin user created by the fixture
+    # Check the total num seeded users
     response = await admin_client.get("/api/users")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["total"] >= 5
-    assert len(data["users"]) >= 5
+    assert data["total"] == 5
+    assert len(data["users"]) == 5
     assert data["has_more"] is False
 
     # Fetch a limited subset
     response = await admin_client.get("/api/users?limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["total"] >= 5
+    assert data["total"] == 5
     assert len(data["users"]) == 2
     assert data["has_more"] is True
 
     # Fetch with skip and limit (complex pagination)
     response = await admin_client.get("/api/users?skip=2&limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
-    assert data["total"] >= 5
+    assert data["total"] == 5
     assert len(data["users"]) == 2
     assert data["skip"] == 2
     assert data["limit"] == 2
@@ -205,7 +205,7 @@ async def test_get_all_users_admin_search_q(admin_client: AsyncClient, db_sessio
         )
     await crud.create_user(db = db_session, user=user)
     response = await admin_client.get("/api/users?q=Svetlana")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 1
     assert data["users"][0]["username"] == "Svetlana"
@@ -236,6 +236,7 @@ async def test_get_all_users_guest_forbidden(client: AsyncClient):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert "detail" in response.json()
 
+
 # Unit test
 @pytest.mark.anyio
 async def test_crud_get_users_direct(db_session: AsyncSession):
@@ -244,6 +245,7 @@ async def test_crud_get_users_direct(db_session: AsyncSession):
 
     assert isinstance(users, list)
     assert isinstance(total, int)
+
 
 # Unit test
 @pytest.mark.anyio
@@ -277,8 +279,9 @@ async def test_crud_get_user_by_phone(db_session: AsyncSession, auth_client: Asy
     assert non_existent_user is None
 
 
+
 # test PATCH Endpoint: logged-in user update his profile
-# User successfully update his profile
+# Success
 @pytest.mark.anyio
 async def test_user_update_success(auth_client: AsyncClient):
     # Access user_id directly from the client attribute
@@ -289,11 +292,11 @@ async def test_user_update_success(auth_client: AsyncClient):
         json={"username": "Updated name"},
 
     )
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["username"] == "Updated name"
-    assert data["email"] == "test@example.com"
-    assert data["phone"] == "0123456789"
+    assert data["email"] == auth_client.email
+    assert data["phone"] == auth_client.phone
 
 
 # Unit test partial update success
@@ -320,9 +323,9 @@ async def test_crud_partial_update_success(db_session: AsyncSession):
     assert updated_user.phone == "32887565258"
 
 
-# Non-authorized user wants to update not his profile: forbidden(403)
+# User 2 wants to update User 1 profile: forbidden(403)
 @pytest.mark.anyio
-async def test_non_authorized_user_update_failed(auth_client: AsyncClient):
+async def test_forbidden_user_update_failed(auth_client: AsyncClient):
     # Use an ID that does not belong to the current authenticated user
     other_user = auth_client.user_id + 99
 
@@ -345,25 +348,8 @@ async def test_non_authenticated_user_update_failed(client: AsyncClient):
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert "Not authenticated" in response.json()["detail"]
 
-# conflict (409) if user wants to update his profile with username that already exist
-@pytest.mark.anyio
-async def test_user_update_conflict(auth_client: AsyncClient, client: AsyncClient,):
-    # Create user
-    existing_user = await create_test_user(
-        client,
-        username="existinguser",
-        email="existing@example.com",
-        phone="0987654321",
-    )
-    user_id = auth_client.user_id
-    response = await auth_client.patch(
-        f"/api/users/{user_id}",
-        json={"username": "existinguser"},
-    )
-    assert response.status_code == status.HTTP_409_CONFLICT
-    assert response.json()["detail"] == "User with this username already exists"
 
-
+# conflict (409): if a user wants to update his profile with a username/email/phone that already exists
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "payload, expected_status, expected_detail",
@@ -416,7 +402,9 @@ async def test_user_update_collisions(
 async def test_user_delete_success(auth_client: AsyncClient):
     response =  await auth_client.delete("/api/users/me")
     assert response. status_code == status.HTTP_204_NO_CONTENT
+    # verify that the server's response body is empty
     assert response.content == b""
+
 
 # self-deletion 401 unauthenticated
 @pytest.mark.anyio
@@ -424,6 +412,7 @@ async def test_user_delete_failure(client: AsyncClient):
     response = await client.delete("/api/users/me")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert "detail" in response.json()
+
 
 # Unit test
 @pytest.mark.anyio
@@ -446,8 +435,9 @@ async def test_crud_user_delete(db_session: AsyncSession):
     assert deleted_user is None
 
 
+
 # test DELETE Endpoint: admin can delete users' profile
-# success
+# Success
 @pytest.mark.anyio
 async def test_admin_delete_success(admin_client: AsyncClient, auth_client: AsyncClient):
     user_id = auth_client.user_id
@@ -455,7 +445,8 @@ async def test_admin_delete_success(admin_client: AsyncClient, auth_client: Asyn
     assert response.status_code == status.HTTP_204_NO_CONTENT
     assert response.content == b""
 
-# delete not existing user
+
+# Delete not existing user
 @pytest.mark.anyio
 async def test_admin_delete_failure(admin_client: AsyncClient, auth_client: AsyncClient):
     non_existent_user = auth_client.user_id + 999
@@ -463,14 +454,16 @@ async def test_admin_delete_failure(admin_client: AsyncClient, auth_client: Asyn
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "User not found"
 
-# regular user can't use admin delete
+
+# Regular user can't use admin endpoint to delete his profile
 @pytest.mark.anyio
 async def test_user_cannot_use_admin_delete(auth_client: AsyncClient):
     user_id = auth_client.user_id
     response = await auth_client.delete(f"/api/users/{user_id}")
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
-# non-authenticated admin can't delete users' profile
+
+# Non-authenticated admin can't delete users' profile
 @pytest.mark.anyio
 async def test_non_authenticated_admin_failure(client: AsyncClient):
     response = await client.delete(f"/api/users/1")

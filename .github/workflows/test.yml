@@ -59,3 +59,25 @@ jobs:
           ADMIN_PASSWORD: admin123
         run: |
           uv run pytest
+
+
+  deploy:
+    needs: test  # Ensures deployment happens ONLY if all tests pass successfully
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # 1. Authenticate with Google Cloud using a Service Account Key stored in GitHub Secrets
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # 2. Build and Deploy directly to Cloud Run
+      - name: Deploy to Cloud Run
+        uses: google-github-actions/deploy-cloudrun@v2
+        with:
+          service: beauty-api
+          region: europe-west1
+          source: .  # Tells Cloud Run to build the container directly from your repository's Dockerfile
