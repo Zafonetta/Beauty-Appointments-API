@@ -33,6 +33,7 @@ async def create_service(
 
     return new_service
 
+
 # GET Endpoint: list available services for clients
 @router.get("",response_model=schemas.PaginatedServices)
 async def get_all_services(
@@ -62,7 +63,7 @@ async def get_service(
     raise HTTPException(status_code=404, detail="Service not found")
 
 
-# PATCH Endpoint: update service detail
+# PATCH Endpoint: Admin update service detail
 @router.patch("/{service_id}", response_model=schemas.ServiceResponse)
 async def update_service(
     service_id: int,
@@ -70,7 +71,7 @@ async def update_service(
     current_admin: CurrentAdmin,
     db: DbSession,
 ):
-    # fetch the existing service from the database
+    # Fetch the existing service from the database
     service = await crud.get_service_by_id(db=db, service_id=service_id)
     if not service:
         raise HTTPException(
@@ -97,7 +98,7 @@ async def delete_service(
         db: DbSession,
         current_admin: CurrentAdmin,
 ):
-    # fetch the existing service from the database
+    # Fetch the existing service from the database
     service = await crud.get_service_by_id(db=db, service_id=service_id)
     if not service:
         raise HTTPException(

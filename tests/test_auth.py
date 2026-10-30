@@ -3,11 +3,10 @@ from unittest.mock import AsyncMock, patch
 import pytest
 from fastapi import status
 from httpx import AsyncClient
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import crud
 import models
-from crud import get_user_by_email
 from security import hash_reset_token, verify_password
 
 

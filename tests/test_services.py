@@ -1,17 +1,14 @@
 import pytest
+from fastapi import status
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
-
 import crud
 import models
 import schemas
-from main import app
-from security import get_current_user, password_hash
 
-from fastapi import status
 
 # testing POST Endpoint: Creates a new service
-# Happy Path: Admin User
+# Happy Path: Admin successfully creates a service
 @pytest.mark.anyio
 async def test_create_service_success(admin_client: AsyncClient):
     payload = {
@@ -23,7 +20,7 @@ async def test_create_service_success(admin_client: AsyncClient):
 
     response = await admin_client.post("/api/services", json=payload)
 
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
 
     assert "id" in data
@@ -42,7 +39,7 @@ async def test_create_service_as_regular_user(auth_client: AsyncClient):
         "duration": 30,
     }
 
-    # authenticated_client provides a regular user token without the dependency override
+    # Authenticated_client provides a regular user token without the dependency override
     response = await auth_client.post("/api/services", json=payload)
 
     assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -58,13 +55,14 @@ async def test_create_service_invalid_payload(admin_client: AsyncClient):
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
+# Verify if admin deletes his account, services remained in db
 @pytest.mark.asyncio
 async def test_delete_admin_sets_service_admin_id_to_null(
         db_session: AsyncSession,
         admin_user: models.Admin,
         test_service: models.Service
 ):
-    # Verify if admin deletes his account, services remained in db
+
     # Delete the admin directly from the database session
     await db_session.delete(admin_user)
     await db_session.commit()
@@ -93,12 +91,12 @@ async def test_get_services_with_pagination(admin_client: AsyncClient, auth_clie
                 "duration": 90,
             }
         )
-        assert response.status_code == 201
+        assert response.status_code == status.HTTP_201_CREATED
 
     # Fetch all services (Public/ Client access)
-    # We expect to see all 5 sevices returned at once
+    # We expect to see all 5 services returned at once
     response = await auth_client.get("/api/services")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["services"]) == 5
@@ -106,7 +104,7 @@ async def test_get_services_with_pagination(admin_client: AsyncClient, auth_clie
 
     # Fetch a limited subset (Pagination)
     response = await auth_client.get("/api/services?limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["services"]) == 2
@@ -114,7 +112,7 @@ async def test_get_services_with_pagination(admin_client: AsyncClient, auth_clie
 
     # Fetch with skip and limit (complex pagination)
     response = await auth_client.get("/api/services?skip=2&limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["services"]) == 2
@@ -132,16 +130,15 @@ async def test_crud_get_services(db_session: AsyncSession, test_service: models.
     assert services[0].name == test_service.name
 
 
-# empty state
+# Verify the "empty state" of our application.
 @pytest.mark.anyio
 async def test_get_services_empty(client: AsyncClient):
     response = await client.get("/api/services")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
 
     # Parse the JSON body returned by the server.
     data = response.json()
 
-    # Verify the "empty state" of our application.
     # We expect a new, clean database to return an empty list of services.
     assert data["services"] == []  # Verify the list is empty
     assert data["total"] == 0  # Verify the count is zero
@@ -219,7 +216,10 @@ async def test_update_service_success_admin(
 
 # Unit test
 @pytest.mark.anyio
-async def test_crud_partial_service_update(auth_client: AsyncClient, test_service: models.Service, db_session: AsyncSession):
+async def test_crud_partial_service_update(
+        auth_client: AsyncClient,
+        test_service: models.Service,
+        db_session: AsyncSession):
     updated_service = schemas.ServiceUpdate(price=50)
 
     service = await crud.partial_service_update(
@@ -230,6 +230,7 @@ async def test_crud_partial_service_update(auth_client: AsyncClient, test_servic
     assert service.price == 50
     assert service.name == test_service.name
     assert service.description == test_service.description
+
 
 # Unauthorized: guest can't update service details
 @pytest.mark.anyio
@@ -250,10 +251,11 @@ async def test_update_service_user_forbidden(test_service: models.Service, other
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
 
-#updating service that doesn't exist
+
+# Updating service that doesn't exist
 @pytest.mark.anyio
 async def test_update_service_not_found(admin_client: AsyncClient):
-    payload = {"price": 100.0}
+    payload = {"price": "100"}
 
     response = await admin_client.patch("/api/services/999999", json=payload)
 
@@ -261,8 +263,9 @@ async def test_update_service_not_found(admin_client: AsyncClient):
     assert response.json()["detail"] == "Service not found"
 
 
+
 # testing DELETE Endpoint: delete service
-# success
+# Admin successfully delete a service
 @pytest.mark.anyio
 async def test_delete_service_success(admin_client: AsyncClient, test_service: models.Service, db_session):
     response = await admin_client.delete(f"/api/services/{test_service.id}")
@@ -272,20 +275,23 @@ async def test_delete_service_success(admin_client: AsyncClient, test_service: m
     deleted_service = await db_session.get(models.Service, test_service.id)
     assert deleted_service is None
 
-# deleting service by admin that doesn't exist
+
+# Admin attempts to delete a service that doesn't exist
 @pytest.mark.anyio
 async def test_delete_service_not_found(admin_client: AsyncClient, test_service: models.Service):
     response = await admin_client.delete(f"/api/services/9999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Service not found"
 
-# guest can't delete service
+
+# Guest attempts to delete a service
 @pytest.mark.anyio
 async def test_delete_service_guest_failed(client: AsyncClient, test_service: models.Service):
     response = await client.delete(f"/api/services/{test_service.id}")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-# standard user can't delete service
+
+# Logged-in user attempts to delete a service
 @pytest.mark.anyio
 async def test_delete_service_user_failed(other_auth_client: AsyncClient, test_service: models.Service):
     response = await other_auth_client.delete(f"/api/services/{test_service.id}")

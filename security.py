@@ -45,7 +45,7 @@ def hash_reset_token(token: str) -> str:
 
 #Create a JWT access token
 def create_access_token(data:dict, expires_delta: timedelta | None = None) -> str:
-    to_encode = data.copy() #Create a shallow copy of the data dictionary to avoid modifying the original payload
+    to_encode = data.copy() # Create a shallow copy of the data dictionary to avoid modifying the original payload
     if expires_delta:
         expire = datetime.now(UTC) + expires_delta
     else:
@@ -53,7 +53,7 @@ def create_access_token(data:dict, expires_delta: timedelta | None = None) -> st
             minutes=settings.access_token_expire_minutes,
         )
     to_encode.update({"exp": expire})
-#It takes the user's information (to_encode), encrypts it using our SECRET_KEY, and specifies the HS256 algorithm to sign the final string.
+# It takes the user's information (to_encode), encrypts it using our SECRET_KEY, and specifies the HS256 algorithm to sign the final string.
     encoded_jwt = jwt.encode(
             to_encode,
             settings.secret_key.get_secret_value(),

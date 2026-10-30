@@ -54,6 +54,7 @@ async def create_appointment(
         end_time=end_time,
     )
 
+
 # GET /me - Retrieve appointments' details for the client
 @router.get("/me", response_model=schemas.PaginatedAppointments)
 async def get_my_appointments(
@@ -191,7 +192,7 @@ async def get_appointments_admin(
         db: DbSession,
         current_admin: CurrentAdmin,
         user_id: Annotated[int | None, Query(description="Filter by registered user ID")] = None,
-        client_email: Annotated[str | None, Query(description="Filter registered user by email")] = None,
+        client_email: Annotated[str | None, Query(description="Filter guests and users by email")] = None,
         skip: Annotated[int, Query(ge=0)] = 0,
         limit: Annotated[int, Query(ge=1, le=100)] = settings.appointments_per_page,
         ):
@@ -219,7 +220,7 @@ async def cancel_appointment(
         db: DbSession,
         current_user: CurrentUser,
 ):
-    # fetch the existing appointment from the database
+    # Fetch the existing appointment from the database
     appointment = await crud.get_user_appointment_by_id(db=db, appointment_id=appointment_id, user_id=current_user.id)
     if not appointment:
         raise HTTPException(

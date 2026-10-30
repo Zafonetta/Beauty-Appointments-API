@@ -1,17 +1,15 @@
-import uuid
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 import pytest
+from fastapi import status, HTTPException
 from httpx import AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.sql.functions import user, current_user
 import crud
 import models
 import schemas
 from routers import appointments
 from security import create_access_token
-from fastapi import status, HTTPException
 from tests.conftest import guest_client
 
 
@@ -30,11 +28,12 @@ async def test_create_appointment_success(client: AsyncClient, test_service: mod
 
     response = await client.post("/api/appointments", json=payload)
 
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
     data = response.json()
     assert data["service_id"] == test_service.id
     assert "id" in data
     assert "end_time" in data
+
 
 # Unit test: create an appointment with success
 @pytest.mark.asyncio
@@ -77,7 +76,7 @@ async def test_create_appointment_unexisted_service(db_session, test_service, te
         )
 
     # Verify the exception details
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Service not found"
 
 
@@ -103,14 +102,17 @@ async def test_create_appointment_conflict(db_session, test_service, guest_clien
             appointment=new_appointment,
         )
 
-    assert exc_info.value.status_code == 409
+    assert exc_info.value.status_code == status.HTTP_409_CONFLICT
     assert exc_info.value.detail == "Time slot already booked."
 
 
-
-# Unit test
+# Unit test: Testing the Lower-Level CRUD / Helper Function for conflict
 @pytest.mark.asyncio
-async def test_crud_check_appointment_conflict(db_session: AsyncSession, test_service: models.Service, test_user):
+async def test_crud_check_appointment_conflict(
+        db_session: AsyncSession,
+        test_service: models.Service,
+        test_user):
+
     # Establish a single base time to prevent microsecond drift
     now = datetime.now(timezone.utc)
 
@@ -148,10 +150,10 @@ async def test_crud_check_appointment_conflict(db_session: AsyncSession, test_se
     assert has_conflict_true is True
 
 
-# Unit test: check if a client with given number/email exists and return it. If not, create it
+# Unit test: check if a client with a given number/email exists and return it. If not, create it
 @pytest.mark.asyncio
 async def test_crud_get_or_create_guest_user(test_user: models.User, db_session: AsyncSession):
-    # RETRIEVE EXISTING USER (matches by existing phone/email in test_user)
+    # Retrieve existing user (matches by existing phone/email in test_user)
     existed_user = await crud.get_or_create_guest_user(
         db=db_session,
         client_name=test_user.username,
@@ -161,7 +163,7 @@ async def test_crud_get_or_create_guest_user(test_user: models.User, db_session:
     assert existed_user.id == test_user.id
     assert existed_user.email == test_user.email
 
-    # CREATE NEW GUEST (must use a UNIQUE phone/email not in DB)
+    # Create new guest (must use a UNIQUE phone/email not in DB)
     guest = await crud.get_or_create_guest_user(
         db=db_session,
         client_name="Fenix Guest",
@@ -188,7 +190,7 @@ async def test_create_appointment_service_not_found(client: AsyncClient):
 
     response = await client.post("/api/appointments", json=payload)
 
-    assert response.status_code == 404
+    assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Service not found"
 
 
@@ -210,9 +212,9 @@ async def test_create_appointment_time_slot_conflict(
 
     # First booking succeeds
     res1 = await client.post("/api/appointments", json=first_booking)
-    assert res1.status_code == 201
+    assert res1.status_code == status.HTTP_201_CREATED
 
-    # Second booking overlaps (starts 30 mins into the 60-min service)
+    # The Second booking overlaps (starts 30 mins into the 60-min service)
     overlapping_booking = {
         "service_id": test_service.id,
         "start_time": (start_time + timedelta(minutes=30)).isoformat(),
@@ -223,7 +225,7 @@ async def test_create_appointment_time_slot_conflict(
 
     res2 = await client.post("/api/appointments", json=overlapping_booking)
 
-    assert res2.status_code == 409
+    assert res2.status_code == status.HTTP_409_CONFLICT
     assert res2.json()["detail"] == "Time slot already booked."
 
 
@@ -246,7 +248,7 @@ async def test_create_appointment_validation_error(
 
 
 
-# testing GET /me Endpoint - Retrieve appointments' details for the client
+# testing GET /me Endpoint - Retrieve appointments' details for the registered client
 @pytest.mark.anyio
 async def test_get_my_appointments_with_pagination(
         auth_client: AsyncClient,
@@ -277,7 +279,7 @@ async def test_get_my_appointments_with_pagination(
     # Fetch all appointments (Default skip=0, limit=10)
     # We expect to see all 5 appointments returned at once
     response = await auth_client.get("/api/appointments/me")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 5
@@ -285,7 +287,7 @@ async def test_get_my_appointments_with_pagination(
 
     # Fetch first page (Pagination)
     response = await auth_client.get("/api/appointments/me?limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 2
@@ -293,7 +295,7 @@ async def test_get_my_appointments_with_pagination(
 
     # Fetch with skip and limit, middle page (complex pagination)
     response = await auth_client.get("/api/appointments/me?skip=2&limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 2
@@ -311,7 +313,7 @@ async def test_get_my_appointments_unexisted(db_session: AsyncSession,):
         current_user=dummy_user,
         db=db_session,
     )
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "User not found"
 
 
@@ -336,10 +338,11 @@ async def test_get_my_appointments_user_not_found(db_session: AsyncSession):
     result = await crud.get_user_appointments(db_session, user_id=99999)
     assert result is None
 
+
 # Direct DB/CRUD unit test
 @pytest.mark.anyio
 async def test_get_user_appointments_crud_success(db_session: AsyncSession, auth_client: AsyncClient):
-    # fetch authenticated client
+    # Fetch authenticated client
     user = await crud.get_user_by_email(db_session, "test@example.com")
     assert user is not None
 
@@ -356,11 +359,12 @@ async def test_get_user_appointments_crud_success(db_session: AsyncSession, auth
     assert isinstance(appointments, list)
     assert isinstance(total, int)
 
-# empty state
+
+# Empty state
 @pytest.mark.anyio
 async def test_get_my_appointments_empty(auth_client: AsyncClient):
     response = await auth_client.get("/api/appointments/me")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     # Verify the "empty state" of our application.
@@ -399,7 +403,7 @@ async def test_get_guest_appointments(
 
     response = await client.post("/api/appointments", json=payload)
 
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
 
     # Extract values from the POST response JSON payload
     created_data = response.json()
@@ -408,7 +412,7 @@ async def test_get_guest_appointments(
     # Call the public endpoint (using unauthenticated client)
     response = await client.get(f"/api/appointments/guest/{guest_token}")
 
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["id"] == created_data["id"]
     assert data["service"]["name"] == test_service.name
@@ -428,7 +432,7 @@ async def test_get_guest_appointments_unexisted(db_session: AsyncSession,):
             db=db_session,
             guest_token="wrong_token",
         )
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Appointment not found"
 
 
@@ -444,7 +448,8 @@ async def test_get_guest_appointments_success(db_session: AsyncSession, guest_cl
     assert result.id == guest_client.appointment.id
     assert result.guest_token == token
 
-# appointment not found
+
+# Appointment not found
 @pytest.mark.anyio
 async def test_get_guest_appointment_not_found(client: AsyncClient):
     """Verify requesting a non-existent guest token returns 404."""
@@ -464,7 +469,7 @@ async def test_get_my_appointments_guest_failed(guest_client: AsyncClient):
     assert oversized_limit.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
-# get appointment by token
+# Get appointment by token
 @pytest.mark.anyio
 async def test_get_appointment_by_token(guest_client: AsyncClient):
     # Retrieve the token attached by the fixture
@@ -473,7 +478,7 @@ async def test_get_appointment_by_token(guest_client: AsyncClient):
     # Make the HTTP request to your API router endpoint
     response = await guest_client.get(f"/api/appointments/guest/{token}")
 
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     # Assert fields defined in AppointmentClientView
@@ -493,11 +498,13 @@ async def test_crud_get_appointment_by_token(guest_client: AsyncClient, db_sessi
     assert appointment.guest_name == guest_client.appointment.guest_name
     assert appointment.service.id == guest_client.appointment.service_id
 
+
 # Unit test: invalid token return None
 @pytest.mark.anyio
 async def test_crud_get_appointment_invalid_token(guest_client: AsyncClient, db_session: AsyncSession):
     appointment = await crud.get_appointment_by_token(db=db_session, token="invalid")
     assert appointment is None
+
 
 # Unit test: crud get user appointment by id
 @pytest.mark.anyio
@@ -514,7 +521,8 @@ async def test_crud_get_user_appointment_by_id(guest_client: AsyncClient, db_ses
     assert appointment.id == appointment_id
     assert appointment.user_id == user_id
 
-# Unit test: crud get appointment by id
+
+# Unit test: crud Admin get appointment by id
 @pytest.mark.anyio
 async def test_crud_get_appointment_by_id(guest_client: AsyncClient, db_session, test_service):
     appointment_id = guest_client.appointment.id
@@ -525,6 +533,7 @@ async def test_crud_get_appointment_by_id(guest_client: AsyncClient, db_session,
     assert appointment is not None
     assert appointment.id == appointment_id
     assert appointment.service_id == test_service.id
+
 
 
 # testing PATCH Endpoint: update appointment by admin
@@ -546,7 +555,7 @@ async def test_update_appointment_success_admin(
         "client_email": "elena@example.com",
         }
     )
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
     appointment_id = response.json()["id"]
 
     # Define a valid new datetime (e.g., +2 hours)
@@ -557,9 +566,58 @@ async def test_update_appointment_success_admin(
         json={"start_time": new_start_time.isoformat()},
 
     )
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["start_time"] == new_start_time.isoformat().replace("+00:00", "Z")
+
+
+# Verify Admin B cannot update an appointment belonging to Admin A's salon
+@pytest.mark.anyio
+async def test_cross_tenant_isolation_update_appointment(
+    test_service: models.Service,  # Belongs to Admin A (Salon A)
+    client: AsyncClient,           # Raw client
+    db_session: AsyncSession,
+):
+    """Verify Admin B cannot update an appointment belonging to Admin A's service."""
+    # Seed Admin B (Salon B)
+    admin_b = models.Admin(email="admin_b@example.com", password_hash="pass_b")
+    db_session.add(admin_b)
+    await db_session.commit()
+
+    # Seed dummy user & appointment under Admin A's test_service
+    temp_user = models.User(
+        username="client_a",
+        email="client_a@example.com",
+        phone="1234567890",
+        password_hash="pass",
+    )
+    db_session.add(temp_user)
+    await db_session.commit()
+
+    booking_time = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
+    appointment = models.Appointment(
+        user_id=temp_user.id,
+        service_id=test_service.id,  # Admin A's service
+        start_time=booking_time,
+        end_time=booking_time + timedelta(minutes=test_service.duration),
+    )
+    db_session.add(appointment)
+    await db_session.commit()
+
+    # Create Admin B's headers
+    token_b = create_access_token(data={"sub": str(admin_b.id)})
+    headers_b = {"Authorization": f"Bearer {token_b}"}
+
+    # Admin B attempts to update Admin A's appointment
+    response = await client.patch(
+        f"/api/appointments/admin/{appointment.id}",
+        json={"start_time": booking_time.isoformat()},
+        headers=headers_b
+    )
+
+    # Assert 404 Not Found
+    assert response.status_code == status.HTTP_404_NOT_FOUND
+    assert response.json()["detail"] == "Appointment not found"
 
 
 # Unit test: update appointment success
@@ -567,7 +625,8 @@ async def test_update_appointment_success_admin(
 async def test_update_appointment_admin_success(
         db_session: AsyncSession,
         guest_client: AsyncClient,
-        admin_user: models.Admin,):
+        admin_user: models.Admin,
+):
     # Fetch existed appointment from our guest_client fixture
     appointment = guest_client.appointment
 
@@ -590,7 +649,6 @@ async def test_update_appointment_admin_success(
 # Unit test: appointment not found
 @pytest.mark.anyio
 async def test_update_appointment_not_found(db_session, admin_user):
-
     updated_appointment = schemas.AppointmentUpdate()
 
     with pytest.raises(HTTPException) as exc_info:
@@ -601,8 +659,9 @@ async def test_update_appointment_not_found(db_session, admin_user):
         current_admin=admin_user,
     )
 
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Appointment not found"
+
 
 # Unit test: appointment with service id that doesn't exist
 @pytest.mark.anyio
@@ -626,13 +685,17 @@ async def test_update_appointment_service_not_found(
         appointment_update=updated_appointment,
         current_admin=admin_user,
     )
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Service not found"
 
 
 # Updating an appointment with invalid service
 @pytest.mark.anyio
-async def test_update_appointment_admin_failed(admin_client: AsyncClient, client: AsyncClient, test_service: models.Service):
+async def test_update_appointment_admin_failed(
+        admin_client: AsyncClient,
+        client: AsyncClient,
+        test_service: models.Service
+):
     # Create initial booking with valid service id
     booking_time = datetime.now(timezone.utc) + timedelta(days=1)
     response = await client.post(
@@ -647,7 +710,7 @@ async def test_update_appointment_admin_failed(admin_client: AsyncClient, client
     )
     appointment_id = response.json()["id"]
 
-    # Admin try to update invalid service ID
+    # Admin tries to update invalid service ID
     invalid_service_id = 9999
     response = await admin_client.patch(
         f"/api/appointments/admin/{appointment_id}",
@@ -659,7 +722,11 @@ async def test_update_appointment_admin_failed(admin_client: AsyncClient, client
 
 # Unauthorized / non-admin access
 @pytest.mark.anyio
-async def test_update_appointment_unauthorized(client: AsyncClient, test_service: models.Service, other_auth_client: AsyncClient):
+async def test_update_appointment_unauthorized(
+        client: AsyncClient,
+        test_service: models.Service,
+        other_auth_client: AsyncClient
+):
     # Create initial booking
     booking_time = datetime.now(timezone.utc) + timedelta(days=1)
     response = await client.post(
@@ -679,6 +746,7 @@ async def test_update_appointment_unauthorized(client: AsyncClient, test_service
         json={"start_time": datetime.now(timezone.utc).isoformat()},
     )
     assert response.status_code == status.HTTP_403_FORBIDDEN
+
 
 # invalid payload
 @pytest.mark.anyio
@@ -711,7 +779,9 @@ async def test_update_appointment_admin_invalid(
 
 # Unit test: crud appointment_update_by_admin
 @pytest.mark.anyio
-async def test_crud_appointment_update(db_session: AsyncSession, guest_client: AsyncClient,):
+async def test_crud_appointment_update(
+        db_session: AsyncSession, guest_client: AsyncClient,
+):
     appointment = guest_client.appointment
     new_start_time = datetime.now(timezone.utc)
 
@@ -729,7 +799,7 @@ async def test_crud_appointment_update(db_session: AsyncSession, guest_client: A
     assert updated_appointment.start_time == new_start_time
     assert updated_appointment.service_id == appointment.service_id
 
-    # unexisted service_id
+    # Unexisted service_id
     appointment_update_invalid = schemas.AppointmentUpdate(
         start_time=new_start_time,
         service_id=99999,
@@ -747,7 +817,8 @@ async def test_crud_appointment_update(db_session: AsyncSession, guest_client: A
 @pytest.mark.anyio
 async def test_update_appointment_success_user(
         auth_client: AsyncClient,
-        test_service: models.Service):
+        test_service: models.Service
+):
     """Verify that a logged-in user can successfully update their appointment's start time."""
     # Create initial booking (strip microseconds for clean ISO string matching)
     booking_time = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
@@ -761,7 +832,7 @@ async def test_update_appointment_success_user(
         "client_email": "test@example.com",
         }
     )
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
     appointment_id = response.json()["id"]
 
     # Define a valid new datetime (e.g., +2 hours)
@@ -772,7 +843,7 @@ async def test_update_appointment_success_user(
         json={"start_time": new_start_time.isoformat()},
 
     )
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
 
     assert data["start_time"] == new_start_time.isoformat().replace("+00:00", "Z")
@@ -799,7 +870,7 @@ async def test_update_appointment_user_success(
     await db_session.commit()
     await db_session.refresh(appointment)
 
-    # update an appointment
+    # Update an appointment
     updated_appointment = schemas.AppointmentUpdate(
         start_time=datetime.now(timezone.utc)+ timedelta(days=1),
         service_id=test_service.id,
@@ -822,7 +893,7 @@ async def test_update_appointment_user_failure(
         db_session: AsyncSession,
         test_user: models.User,
 ):
-    # update an appointment
+    # Update an appointment
     updated_appointment = schemas.AppointmentUpdate()
 
     with pytest.raises(HTTPException) as exc_info:
@@ -832,7 +903,7 @@ async def test_update_appointment_user_failure(
         appointment_update=updated_appointment,
         current_user=test_user,
     )
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == "Appointment not found"
 
 
@@ -842,7 +913,7 @@ async def test_update_appointment_user_invalid_service(
         db_session: AsyncSession,
         guest_client):
 
-    #  Match current_user.id to the appointment's actual owner
+    # Match current_user.id to the appointment's actual owner
     owner = SimpleNamespace(id=guest_client.appointment.user_id)
 
     updated_appointment = schemas.AppointmentUpdate(service_id=99999)
@@ -854,7 +925,7 @@ async def test_update_appointment_user_invalid_service(
             appointment_update=updated_appointment,
             current_user=owner,
         )
-    assert exc_info.value.status_code == 404
+    assert exc_info.value.status_code == status.HTTP_404_NOT_FOUND
     assert exc_info.value.detail == f"Service with id {updated_appointment.service_id} does not exist"
 
 
@@ -883,6 +954,7 @@ async def test_update_appointment_user_forbidden(
         json={"start_time": booking_time.isoformat()},
     )
     assert response.status_code == status.HTTP_404_NOT_FOUND
+
 
 # Unauthorized: Guest can't update users' appointment
 @pytest.mark.anyio
@@ -913,8 +985,11 @@ async def test_update_appointment_user_unauthorized(
 
 # Updating an appointment with invalid service
 @pytest.mark.anyio
-async def test_update_appointment_failed(auth_client: AsyncClient, client: AsyncClient, test_service: models.Service):
-
+async def test_update_appointment_failed(
+        auth_client: AsyncClient,
+        client: AsyncClient,
+        test_service: models.Service
+):
     booking_time = datetime.now(timezone.utc) + timedelta(days=1)
     response = await client.post(
         "/api/appointments",
@@ -944,7 +1019,6 @@ async def test_update_appointment_invalid(
         client: AsyncClient,
         test_service: models.Service,
 ):
-
     booking_time = datetime.now(timezone.utc) + timedelta(days=1)
     response = await client.post(
         "/api/appointments",
@@ -984,7 +1058,6 @@ async def test_update_appointment_success_guest(
             "client_email": "test@example.com",
             }
         )
-
     guest_token = response.json()["guest_token"]
 
     # Define a valid new datetime (e.g., +2 hours)
@@ -1001,7 +1074,7 @@ async def test_update_appointment_success_guest(
     assert data["start_time"] == new_start_time.isoformat().replace("+00:00", "Z")
 
 
-# updating guests' appointment with invalid token
+# Updating guests' appointment with invalid token
 @pytest.mark.anyio
 async def test_update_appointment_guest_invalid_token(
         client: AsyncClient,
@@ -1016,7 +1089,7 @@ async def test_update_appointment_guest_invalid_token(
     assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
-# updating payload with invalid payload
+# Updating payload with invalid payload
 @pytest.mark.anyio
 async def test_update_appointment_guest_invalid(guest_client: AsyncClient,):
     token = guest_client.guest_token
@@ -1051,7 +1124,7 @@ async def test_get_appointments_admin(
             "client_email": "test@example.com",
             }
         )
-    assert response.status_code == 201
+    assert response.status_code == status.HTTP_201_CREATED
 
     # Create a user booking (authenticated client)
     booking_time_user = (datetime.now(timezone.utc) + timedelta(days=1, hours=2)).replace(microsecond=0)
@@ -1065,7 +1138,7 @@ async def test_get_appointments_admin(
                 "client_email": "user@example.com",
             },
         )
-    assert res_user.status_code == 201
+    assert res_user.status_code == status.HTTP_201_CREATED
 
     # Assert admin sees both (total == 2)
     response = await admin_client.get("/api/appointments/admin")
@@ -1077,7 +1150,7 @@ async def test_get_appointments_admin(
     assert len(data["appointments"]) == 2
 
 
-# verify that admin can get users' appointments with skip/limit/offset
+# Verify that admin can get users' appointments with skip/limit/offset
 @pytest.mark.anyio
 async def test_get_appointments_admin_skip(
         admin_client: AsyncClient,
@@ -1171,7 +1244,7 @@ async def test_get_appointments_admin_skip_guest(
     # Fetch all services (Default skip=0, limit=10)
     # We expect to see all 5 appointments returned at once
     response = await admin_client.get("/api/appointments/admin")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 5
@@ -1179,7 +1252,7 @@ async def test_get_appointments_admin_skip_guest(
 
     # Fetch first page (Pagination)
     response = await admin_client.get("/api/appointments/admin?limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 2
@@ -1187,7 +1260,7 @@ async def test_get_appointments_admin_skip_guest(
 
     # Fetch with skip and limit, middle page (complex pagination)
     response = await admin_client.get("/api/appointments/admin?skip=2&limit=2")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
     data = response.json()
     assert data["total"] == 5
     assert len(data["appointments"]) == 2
@@ -1195,11 +1268,11 @@ async def test_get_appointments_admin_skip_guest(
     assert data["limit"] == 2
 
 
-# empty state
+# Empty state
 @pytest.mark.anyio
 async def test_get_appointments_admin_empty(admin_client: AsyncClient):
     response = await admin_client.get("/api/appointments/admin")
-    assert response.status_code == 200
+    assert response.status_code == status.HTTP_200_OK
 
     assert response.json()["appointments"] == []
     assert response.json()["total"] == 0
@@ -1226,9 +1299,9 @@ async def test_get_appointments_admin_forbidden(auth_client: AsyncClient):
 # Admin A cannot view appointments belonging to Admin B
 @pytest.mark.anyio
 async def test_tenant_isolation(
-        admin_client: AsyncClient,  # Pre-configured with Admin A's token in conftest
+        admin_client: AsyncClient,
         db_session: AsyncSession,
-        client: AsyncClient,  # Unauthenticated raw client
+        client: AsyncClient,
 ):
     # Seed Admin B in the database
     admin_b = models.Admin(email="admin_b@example.com", password_hash="hashed_pass")
@@ -1245,8 +1318,8 @@ async def test_tenant_isolation(
     # Admin B's request uses raw client + Admin B's headers
     res_b = await client.get("/api/appointments/admin", headers=headers_b)
 
-    assert res_a.status_code == 200
-    assert res_b.status_code == 200
+    assert res_a.status_code == status.HTTP_200_OK
+    assert res_b.status_code == status.HTTP_200_OK
 
 
 # CRUD unit test: covers main statement execution
@@ -1266,6 +1339,7 @@ async def test_crud_get_all_appointments_admin_id_filter(db_session: AsyncSessio
     appointments, total = await crud.get_all_appointments_admin(db=db_session, user_id=user.id)
     assert isinstance(appointments, list)
 
+
 # CRUD Unit test: Filter by client_email
 @pytest.mark.anyio
 async def test_crud_get_all_appointments_admin_email_filter(db_session: AsyncSession):
@@ -1281,7 +1355,6 @@ async def test_delete_appointment_user_success(
         test_service: models.Service,
         db_session: AsyncSession,
 ):
-
     # Fetch the user created by auth_client
     result = await db_session.execute(
         select(models.User).where(models.User.email == "test@example.com")
@@ -1303,14 +1376,16 @@ async def test_delete_appointment_user_success(
 
     # Deleting appointment
     response = await auth_client.delete(f"/api/appointments/{appointment.id}")
-    assert response.status_code == 204
+    assert response.status_code == status.HTTP_204_NO_CONTENT
 
-# Cancel non-existed appointment
+
+# Cancel appointment by logged-in user that doesn't exist
 @pytest.mark.anyio
 async def test_delete_appointment_not_found(auth_client: AsyncClient):
     response = await auth_client.delete("/api/appointments/9999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Appointment not found"
+
 
 # Unauthorized: guest can't delete users' appointment
 @pytest.mark.anyio
@@ -1318,6 +1393,7 @@ async def test_delete_appointment_unauthorized(client: AsyncClient):
     response = await client.delete("/api/appointments/1")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"] == "Not authenticated"
+
 
 # Verify User A cannot delete an appointment belonging to User B (returns 404)
 @pytest.mark.anyio
@@ -1479,13 +1555,14 @@ async def test_cross_tenant_isolation(
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Appointment not found"
 
+
 # Deleting appointment with invalid ID
 @pytest.mark.anyio
 async def test_delete_appointment_invalid_id(admin_client: AsyncClient):
-
     response = await admin_client.delete(f"/api/appointments/admin/9999")
     assert response.status_code == status.HTTP_404_NOT_FOUND
     assert response.json()["detail"] == "Appointment not found"
+
 
 # Unauthorized: a client can't delete appointment using admin route
 @pytest.mark.anyio
@@ -1493,6 +1570,7 @@ async def test_delete_appointment_admin_unauthorized(client: AsyncClient):
     response = await client.delete(f"/api/appointments/admin/1")
     assert response.status_code == status.HTTP_401_UNAUTHORIZED
     assert response.json()["detail"] == "Not authenticated"
+
 
 # Forbidden: a logged-in user can't delete appointment using admin route
 @pytest.mark.anyio

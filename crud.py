@@ -1,15 +1,12 @@
 import uuid
-from datetime import datetime, time, timedelta
-from typing import Optional
-from zoneinfo import ZoneInfo
+from datetime import datetime, timedelta
+from sqlalchemy import delete as sql_delete  # alias
 from sqlalchemy import func, select, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import delete as sql_delete #alias
 import models
 import schemas
 from security import hash_password
-
 
 
 # Helper: Fetch user by case-insensitive username
@@ -30,6 +27,7 @@ async def get_admin_by_email(db: AsyncSession, email: str) -> models.Admin | Non
     )
     return result.scalars().first()
 
+
 # Helper: Fetch user by case-insensitive email
 async def get_user_by_email(db: AsyncSession, email: str) -> models.User | None:
     """Fetch user by email, useful for login and registration checks)."""
@@ -39,7 +37,8 @@ async def get_user_by_email(db: AsyncSession, email: str) -> models.User | None:
     )
     return result.scalars().first()
 
-#Helper: Fetch user by case-insensitive phone number
+
+# Helper: Fetch user by case-insensitive phone number
 async def get_user_by_phone(db: AsyncSession, phone: str) -> models.User | None:
     """Fetch user by phone, useful for login and registration checks."""
     result = await db.execute(
@@ -49,7 +48,7 @@ async def get_user_by_phone(db: AsyncSession, phone: str) -> models.User | None:
     return result.scalars().first()
 
 
-#Helper: Fetch user by id
+# Helper: Fetch user by id
 async def get_user_by_id(db: AsyncSession, user_id: int) -> models.User | None:
     """Fetch a single user by primary key ID."""
     result = await db.execute(
@@ -64,7 +63,7 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User
     # Hash the incoming raw password
     hashed_pwd = hash_password(user.password)
 
-    # Extract input data(username, email, phone) excluding the plain-text password
+    # Extract input data (username, email, phone) excluding the plain-text password
     user_data = user.model_dump(exclude={"password"})
     user_data["email"] = user.email.lower()  # Normalize email in the dictionary
 
@@ -153,12 +152,13 @@ async def get_user_appointments(
         .options(selectinload(models.Appointment.service)
         ) # Eagerly load service data
         .order_by(models.Appointment.start_time.desc())
-        .offset(skip)#Hop over the appointment the frontend has already seen
+        .offset(skip) # Hop over the appointment the frontend has already seen
         .limit(limit)
     )
     appointments = list(result.scalars().all())
 
     return appointments, total
+
 
 # Fetches paginated appointments across all clients and guests
 async def get_all_appointments_admin(
@@ -171,11 +171,16 @@ async def get_all_appointments_admin(
 
     # Build filter conditions
     conditions = []
+    # Default to False; joining the User table is only required
+    # when filtering or searching by attributes stored on the User model (like email).
     needs_user_join = False
 
     if user_id is not None:
         conditions.append(models.Appointment.user_id == user_id)
+
     if client_email is not None:
+        # Set to True because searching by email requires accessing
+        # models.User.email, which lives in the separate User table.
         needs_user_join = True
         conditions.append(
             or_(
@@ -261,6 +266,7 @@ async def create_reset_token(
     await db.refresh(reset_token)
     return reset_token
 
+
 async def get_reset_token(db: AsyncSession, token_hash: str) -> models.PasswordResetToken:
     """Fetch token record by hash without side effects."""
     result = await db.execute(
@@ -280,7 +286,7 @@ async def get_services(
         skip: int = 0,
         limit: int = 10
 ) -> tuple[list[models.Service], int]:
-    """Fetch paginated list of all services."""
+    """Fetch a paginated list of all services."""
     # Total services count
     total = (
             await db.scalar(select(func.count()).select_from(models.Service)) or 0
@@ -297,7 +303,8 @@ async def get_services(
 
     return services, total
 
-# helper function
+
+# Get service by id
 async def get_service_by_id(db: AsyncSession, service_id: int) -> models.Service | None:
     result = await db.execute(
         select(models.Service)
@@ -314,7 +321,7 @@ async def partial_service_update(
         service_update: schemas.ServiceUpdate,
         ) -> models.Service:
     """Applies passed updates, commits transaction, and returns updated instance."""
-    # Fetch the existing services (reusing our existing get_user_by_id helper)
+
     update_data = service_update.model_dump(exclude_unset=True)
 
     for field, value in update_data.items():
@@ -323,6 +330,7 @@ async def partial_service_update(
     await db.commit()
     await db.refresh(service, attribute_names=["admin"])
     return service
+
 
 # Delete service
 async def delete_service(db: AsyncSession, service: models.Service) -> None:
@@ -352,7 +360,7 @@ async def get_or_create_guest_user(
     client_phone: str,
     client_email: str | None = None
 ) -> models.User:
-    """Check if a client with given number/email exists and return it. If not, create it."""
+    """Check if a client with a given number/email exists and return it. If not, create it."""
     clean_phone = client_phone.strip()
     clean_email = client_email.strip() if client_email else None
 
@@ -380,6 +388,7 @@ async def get_or_create_guest_user(
 
     return user
 
+
 async def create_appointment(
         db:AsyncSession,
         appointment: schemas.AppointmentCreate,
@@ -399,6 +408,7 @@ async def create_appointment(
     await db.refresh(new_appointment)
     return new_appointment
 
+
 async def get_appointment_by_token(
         db: AsyncSession,
         token: str,
@@ -413,6 +423,7 @@ async def get_appointment_by_token(
     )
     return result.scalar_one_or_none()
 
+
 async def get_user_appointment_by_id(db: AsyncSession, appointment_id: int, user_id:int,) -> models.Appointment | None:
     result = await db.execute(
         select(models.Appointment)
@@ -422,10 +433,12 @@ async def get_user_appointment_by_id(db: AsyncSession, appointment_id: int, user
     )
     return result.scalars().first()
 
+
 # Delete an existing appointment instance
 async def delete_appointment(db: AsyncSession, appointment:models.Appointment) -> None:
     await db.delete(appointment)
     await db.commit()
+
 
 # Fetch an appointment only if it belongs to a service owned by admin_id
 async def get_appointment_by_id(db: AsyncSession, appointment_id: int, admin_id:int) -> models.Appointment | None:
@@ -439,7 +452,8 @@ async def get_appointment_by_id(db: AsyncSession, appointment_id: int, admin_id:
     )
     return result.scalars().first()
 
-# appointment update by admin
+
+# Appointment update by admin
 async def update_appointment(
         db: AsyncSession,
         appointment: models.Appointment,

@@ -1,12 +1,10 @@
 import pytest
+from fastapi import status
 from httpx import AsyncClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import crud
 import models
 import schemas
-from crud import get_user_by_email, get_user_by_username, partial_user_update
-from fastapi import status
 from tests.conftest import create_test_user
 
 
