@@ -8,7 +8,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 import models  # noqa: F401
 from database import engine, get_db
-from routers import users, auth, services, appointments
+from routers import users, auth, services, appointments, telegram
 
 
 @asynccontextmanager
@@ -47,9 +47,10 @@ app.include_router(users.router, prefix= "/api/users", tags=["Users"])
 app.include_router(auth.router, prefix= "/api/auth", tags=["Token"])
 app.include_router(services.router, prefix="/api/services", tags=["Services"])
 app.include_router(appointments.router, prefix="/api/appointments", tags=["Appointments"])
+app.include_router(telegram.router, prefix="/api/telegram", tags=["Telegram"])
 
-#Health check probe for monitoring tools and deployment platforms.
-#Verifies that the database connection is alive and responding
+# Health check probe for monitoring tools and deployment platforms.
+# Verifies that the database connection is alive and responding
 @app.get("/health", tags=["Health check"])
 async def health_check(db: Annotated[AsyncSession, Depends(get_db)]):
     try:

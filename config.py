@@ -20,12 +20,15 @@ class Settings(BaseSettings):
     admin_email: str
     admin_password: SecretStr  # Using SecretStr prevents it from leaking in logs
 
-
     appointments_per_page: int = 10
     services_per_page: int = 10
     users_per_page: int = 10
 
+# Telegram & AI Bot Settings
+    telegram_bot_token: SecretStr
+    gemini_api_key: SecretStr
 
+# Mail Settings
 mail_server: str = "localhost"  # To send an email, our Python backend must log into a mail server (mail provider)
 mail_port: int = 587  # The secure connection port standard for modern, encrypted web mail
 mail_username: str = ""  # The email addresses our app logs into to send messages.
