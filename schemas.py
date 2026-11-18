@@ -39,6 +39,7 @@ class UserPrivate(UserPublic):
 
 class UserResponse(UserBase):
     id: int
+    email: EmailStr | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -112,13 +113,15 @@ class AppointmentCreate(AppointmentBase):
 
     # Fields for unregistered guests
     client_name: str = Field(min_length=2, max_length=50)
-    client_email: EmailStr | None = Field(max_length=120)
+    client_email: EmailStr | None = Field(default=None, max_length=120)
     client_phone: str| None = Field(default=None, min_length=10, max_length=20, pattern=r"^\+?[0-9\s\-\(\)]{7,20}$")
 
 
     @field_validator("client_phone", "client_name")
     @classmethod
-    def strip_whitespace(cls, v: str) -> str:
+    def strip_whitespace(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
         cleaned = v.strip()
         if not cleaned:
             raise ValueError("Field cannot be empty or only whitespace")
@@ -178,8 +181,4 @@ class ResetPasswordRequest(BaseModel):
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8)
-
-
-
-
 

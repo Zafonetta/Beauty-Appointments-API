@@ -9,8 +9,10 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    username: Mapped[str] = mapped_column(String(50), unique=True)
-    email: Mapped[str] = mapped_column(String(120), unique=True)
+    username: Mapped[str] = mapped_column(String(50), unique=False)
+    email: Mapped[str | None] = mapped_column(
+        String(120), unique=True, nullable=True
+    )
     phone: Mapped[str] = mapped_column(String(20), unique=True)
     password_hash: Mapped[str] = mapped_column(String(200), nullable=True)
     # Status column

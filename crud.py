@@ -349,7 +349,7 @@ async def check_appointment_conflict(
                 models.Appointment.end_time > start_time,)
         )
     )
-    existing_appointment = result.scalar_one_or_none()
+    existing_appointment = result.scalars().first()
 
     return existing_appointment is not None
 
@@ -374,19 +374,25 @@ async def get_or_create_guest_user(
     )
     user = result.scalars().first()
 
-    # Create user if neither phone nor email was found
-    if not user:
-        user = models.User(
-            username=client_name.strip(),
-            phone=clean_phone,
-            email=clean_email,
-            password_hash="GUEST_NO_PASSWORD",  # Satisfies NOT NULL constraint
-        )
-        db.add(user)
+    if user:
+        # If phone exists, update their name if they changed it
+        user.username = client_name
         await db.commit()
         await db.refresh(user)
+        return user
 
-    return user
+    # Otherwise, create a new guest record
+    new_user = models.User(
+        username=client_name,  # Safe to duplicate now because unique=False
+        phone=clean_phone,
+        email=clean_email,
+        password_hash="GUEST_NO_PASSWORD",
+        is_active=True
+    )
+    db.add(new_user)
+    await db.commit()
+    await db.refresh(new_user)
+    return new_user
 
 
 async def create_appointment(
