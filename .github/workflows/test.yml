@@ -15,7 +15,7 @@ jobs:
         image: postgres:15-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_PASSWORD: 6925koza
           POSTGRES_DB: beauty_db_test
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
@@ -46,9 +46,9 @@ jobs:
 
       - name: Run Pytest Suite
         env:
-          DATABASE_URL: postgresql+asyncpg://postgres:postgrespassword@localhost:5432/beauty_db_test
+          DATABASE_URL: postgresql+psycopg://postgres:postgrespassword@localhost:5432/beauty_db_test
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_PASSWORD: 6925koza
           POSTGRES_DB: beauty_db_test
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
