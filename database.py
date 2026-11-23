@@ -7,7 +7,9 @@ from config import settings
 
 engine = create_async_engine(
     settings.database_url,
-    connect_args={"ssl": "require"}
+    connect_args={"ssl": "require"},
+    pool_pre_ping=True,
+    pool_recycle=1800,
 )
 
 # async_sessionmaker for session creation

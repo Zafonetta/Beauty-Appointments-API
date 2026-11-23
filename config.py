@@ -27,6 +27,13 @@ class Settings(BaseSettings):
 # Telegram & AI Bot Settings
     telegram_bot_token: SecretStr
     gemini_api_key: SecretStr
+    salon_name: str = "Lena's nail studio"
+    salon_address: str = "Rome, Italy"
+    salon_latitude: float | None = None
+    salon_longitude: float | None = None
+    google_maps_url: str | None = None
+    admin_telegram_chat_id: int | None = None
+    forward_client_messages_to_admin: bool = True
 
 # Mail Settings
 mail_server: str = "localhost"  # To send an email, our Python backend must log into a mail server (mail provider)
