@@ -6,10 +6,10 @@ from sqlalchemy.orm import DeclarativeBase
 from config import settings
 
 engine = create_async_engine(
-    settings.database_url,
-    connect_args={"ssl": "require"},
-    pool_pre_ping=True,
-    pool_recycle=1800,
+    settings.database_url, # Async PostgreSQL connection string (e.g., postgresql+asyncpg://...)
+    connect_args={"ssl": "require"}, # Passed to asyncpg: require SSL/TLS encryption over the network
+    pool_pre_ping=True, # SQLAlchemy: ping/check pooled connections before use; replace if dead
+    pool_recycle=1800, # SQLAlchemy: recycle connections older than 1800s (30 min) to avoid stale drops
 )
 
 # async_sessionmaker for session creation

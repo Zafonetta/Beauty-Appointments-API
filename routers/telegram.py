@@ -18,12 +18,13 @@ from database import DbSession
 
 
 router = APIRouter()
-logger = logging.getLogger(__name__)
-ROME = ZoneInfo("Europe/Rome")
-GEMINI_MAX_ATTEMPTS = 3
-GEMINI_RETRY_BASE_SECONDS = 0.5
-UPDATE_ID_CACHE_SIZE = 10_000
-ADMIN_FORWARD_CACHE_SIZE = 10_000
+
+logger = logging.getLogger(__name__) # Module-scoped logger to trace events/errors by file in Cloud Run logs
+ROME = ZoneInfo("Europe/Rome") # Rome timezone (automatically adjusts for summer/winter daylight saving)
+GEMINI_MAX_ATTEMPTS = 3 # Max total tries when calling Gemini before giving up on transient errors (e.g. 503)
+GEMINI_RETRY_BASE_SECONDS = 0.5 # Base wait (0.5s) between retry attempts to ease load on Gemini
+UPDATE_ID_CACHE_SIZE = 10_000 # Max recent Telegram update_ids kept in memory to skip duplicate webhooks
+ADMIN_FORWARD_CACHE_SIZE = 10_000 # Max recent admin-forwarded message mappings kept in memory for replies
 
 # Initialize Gemini client
 gemini_client = genai.Client(api_key=settings.gemini_api_key.get_secret_value())
@@ -45,6 +46,15 @@ admin_message_order: deque[int] = deque()
 CHECK_AVAILABILITY_TOOL = "check_nail_appointment_availability"
 BOOK_APPOINTMENT_TOOL = "book_nail_appointment"
 MAX_FUNCTION_CALL_ROUNDS = 5
+
+
+def clean_telegram_text(text: str) -> str:
+  # Remove Markdown bold markers (**) that show as literal asterisks in plain text[cite: 5, 7]
+  cleaned = text.replace("**", "")
+  # Optional: remove standalone single '*' used for italics
+  cleaned = re.sub(r"(?<!\*)\*(?!\*)", "", cleaned)
+  return cleaned.strip()
+
 
 
 def resolve_upcoming_date(
@@ -202,9 +212,10 @@ async def _send_telegram_message(
     chat_id: int,
     text: str,
 ) -> dict:
+    cleaned_text = clean_telegram_text(text)
     response = await client.post(
         f"https://api.telegram.org/bot{bot_token}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
+        json={"chat_id": chat_id, "text": cleaned_text},
     )
     response.raise_for_status()
     result = response.json()
