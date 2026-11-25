@@ -23,11 +23,13 @@ class Settings(BaseSettings):
     appointments_per_page: int = 10
     services_per_page: int = 10
     users_per_page: int = 10
+    appointment_buffer_minutes: int = 30
+
 
 # Telegram & AI Bot Settings
     telegram_bot_token: SecretStr
     gemini_api_key: SecretStr
-    salon_name: str = "Lena's nail studio"
+    salon_name: str = "Lena's nail service"
     salon_address: str = "Rome, Italy"
     salon_latitude: float | None = None
     salon_longitude: float | None = None

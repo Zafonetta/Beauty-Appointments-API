@@ -229,6 +229,53 @@ async def test_create_appointment_time_slot_conflict(
     assert res2.json()["detail"] == "Time slot already booked."
 
 
+# Check appointment conflict respects 30 min buffer
+@pytest.mark.asyncio
+async def test_create_appointment_buffer(
+    client: AsyncClient, test_service: models.Service
+):
+    base_time = datetime.now(timezone.utc) + timedelta(days=2)
+    start_time = base_time.replace(hour=14, minute=0, second=0, microsecond=0)
+
+    first_booking = {
+        "service_id": test_service.id,
+        "start_time": start_time.isoformat(),
+        "client_name": "First Client",
+        "client_phone": "+393123456789",
+        "client_email": "first@example.com",
+    }
+
+    # First booking succeeds
+    res1 = await client.post("/api/appointments", json=first_booking)
+    assert res1.status_code == status.HTTP_201_CREATED
+
+    # The Second booking overlaps (starts 30 mins into the 90-min service)
+    overlapping_booking = {
+        "service_id": test_service.id,
+        "start_time": (start_time + timedelta(minutes=90)).isoformat(),
+        "client_name": "Second Client",
+        "client_phone": "+393987654321",
+        "client_email": "second@example.com",
+    }
+    res2 = await client.post("/api/appointments", json=overlapping_booking)
+
+    assert res2.status_code == status.HTTP_409_CONFLICT
+    assert res2.json()["detail"] == "Time slot already booked."
+
+    # Success: The booking starts 30 mins after the 90-min service(90+30=120)
+    buffer_booking = {
+        "service_id": test_service.id,
+        "start_time": (start_time + timedelta(minutes=120)).isoformat(),
+        "client_name": "Second Client",
+        "client_phone": "+393987654321",
+        "client_email": "second@example.com",
+    }
+
+    res3 = await client.post("/api/appointments", json=buffer_booking)
+    assert res3.status_code == status.HTTP_201_CREATED
+
+
+
 # 422 Unprocessable Content when schema validators fail
 @pytest.mark.asyncio
 async def test_create_appointment_validation_error(

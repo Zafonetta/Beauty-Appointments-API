@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import models
 import schemas
+from config import Settings, settings
 from security import hash_password
 
 
@@ -340,13 +341,17 @@ async def delete_service(db: AsyncSession, service: models.Service) -> None:
 
 
 async def check_appointment_conflict(
-        db: AsyncSession, start_time: datetime, end_time: datetime
+        db: AsyncSession,
+        start_time: datetime,
+        end_time: datetime,
+        buffer_min: int = settings.appointment_buffer_minutes
 ) -> bool:
+    buffer = timedelta(minutes=buffer_min)
     result = await db.execute(
         select(models.Appointment)
         .where(and_(
-                models.Appointment.start_time < end_time,
-                models.Appointment.end_time > start_time,)
+                models.Appointment.start_time < end_time + buffer,
+                models.Appointment.end_time + buffer > start_time,)
         )
     )
     existing_appointment = result.scalars().first()

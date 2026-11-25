@@ -34,13 +34,12 @@ TELEGRAM_TOKEN = settings.telegram_bot_token.get_secret_value()
 TELEGRAM_API_URL = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 
 
-# Store active chat sessions in memory, keyed by Telegram chat_id
-active_chats = {}
-active_chat_dates: dict[int, date] = {}
-processed_update_ids: set[int] = set()
-processed_update_order: deque[int] = deque()
-admin_message_clients: dict[int, int] = {}
-admin_message_order: deque[int] = deque()
+active_chats = {} # Maps Telegram chat_id -> active chat session in RAM (resets on restart)
+active_chat_dates: dict[int, date] = {} # Maps Telegram chat_id -> last Rome calendar date tracked for that chat
+processed_update_ids: set[int] = set() # Fast O(1) lookup set of recent Telegram webhook update_ids to skip retries
+processed_update_order: deque[int] = deque() # FIFO double-ended queue to evict oldest update_ids past cache limit
+admin_message_clients: dict[int, int] = {} # Maps admin chat message_id -> client chat_id so admin replies route back
+admin_message_order: deque[int] = deque() # FIFO double-ended queue to evict oldest admin reply mappings past limit
 
 # global constants (fixed configuration)
 CHECK_AVAILABILITY_TOOL = "check_nail_appointment_availability"
@@ -56,7 +55,7 @@ def clean_telegram_text(text: str) -> str:
   return cleaned.strip()
 
 
-
+# Prevents picking a stale/wrong year (like 2024 instead of 2026)
 def resolve_upcoming_date(
     month: int,
     day: int,
@@ -76,18 +75,26 @@ def resolve_upcoming_date(
 
 def resolve_start_time(start_time_str: str, now: datetime | None = None) -> datetime:
     """Normalize a tool-requested timestamp to Europe/Rome and repair past years."""
+    # Use passed `now` (e.g., in tests) or get the current time in Rome.
     current_time = now or datetime.now(ROME)
+
+    # If `current_time` has no timezone (naive), attach ROME without changing clock numbers;
+    # if it already has a timezone, convert it to ROME time.
     if current_time.tzinfo is None:
         current_time = current_time.replace(tzinfo=ROME)
     else:
         current_time = current_time.astimezone(ROME)
 
+    # Parse the ISO timestamp string sent by Gemini into a Python datetime object.
     requested = datetime.fromisoformat(start_time_str)
+    # Normalize `requested` to ROME time (attach ROME if naive, or convert if another tz).
     if requested.tzinfo is None:
         requested = requested.replace(tzinfo=ROME)
     else:
         requested = requested.astimezone(ROME)
 
+    # If the requested calendar date is in the past (e.g., Gemini used a stale year),
+    # find the next valid upcoming date and keep the requested time of day.
     if requested.date() < current_time.date():
         upcoming_day = resolve_upcoming_date(
             requested.month,
@@ -99,13 +106,17 @@ def resolve_start_time(start_time_str: str, now: datetime | None = None) -> date
             time(requested.hour, requested.minute, requested.second),
             tzinfo=ROME,
         )
+    # Return the Clean datetime
     return requested
 
 
 def _google_maps_url() -> str:
+    # Return a custom/preconfigured Google Maps URL right away if one is set and non-empty.
     if settings.google_maps_url and settings.google_maps_url.strip():
         return settings.google_maps_url.strip()
+    # Otherwise build a clean search query from the service name and address.
     query = f"{settings.salon_name} {settings.salon_address}".strip()
+    # URL-encode query parameters so spaces and special characters form a valid Maps link.
     return f"https://www.google.com/maps/search/?{urlencode({'api': '1', 'query': query})}"
 
 
@@ -113,7 +124,7 @@ def _message_language(text: str) -> str:
     if re.search(r"[\u0400-\u04ff]", text):
         return "ru"
     if re.search(
-        r"\b(indirizzo|dove|siete|posizione|indicazioni|arrivare|salone|"
+        r"\b(indirizzo|dove|siete|posizione|indicazioni|arrivare|"
         r"vorrei|prenotare|appuntamento)\b",
         text,
         re.IGNORECASE,
