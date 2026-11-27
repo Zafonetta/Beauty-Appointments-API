@@ -11,14 +11,24 @@ from schemas import AppointmentCreate, UserResponse
 
 
 @pytest.fixture(autouse=True)
-def clear_telegram_state():
+async def clear_telegram_state():
     telegram.active_chats.clear()
     telegram.active_chat_dates.clear()
+    telegram.active_chat_last_activity.clear()
     telegram.processed_update_ids.clear()
     telegram.processed_update_order.clear()
     telegram.admin_message_clients.clear()
     telegram.admin_message_order.clear()
+    telegram.pending_messages.clear()
+    telegram.debounce_tasks.clear()
+    telegram.debounce_locks.clear()
+    telegram.turn_locks.clear()
     yield
+    tasks = list(telegram.debounce_tasks.values())
+    for task in tasks:
+        task.cancel()
+    if tasks:
+        await telegram.asyncio.gather(*tasks, return_exceptions=True)
 
 
 def test_resolve_upcoming_date_uses_today_or_next_year():
@@ -217,6 +227,12 @@ async def test_booking_creates_guest_without_email(monkeypatch):
     )
     monkeypatch.setattr(
         telegram.crud, "get_or_create_guest_user", get_or_create_guest_user
+    )
+    async def link_telegram_user_to_client(**_kwargs):
+        return True
+
+    monkeypatch.setattr(
+        telegram.crud, "link_telegram_user_to_client", link_telegram_user_to_client
     )
     monkeypatch.setattr(telegram.crud, "create_appointment", create_appointment)
 
@@ -515,21 +531,30 @@ async def test_exhausted_gemini_503_sends_localized_fallback(monkeypatch):
     async def no_wait(_delay):
         return None
 
+    class FakeDB:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    async def get_profile(**_kwargs):
+        return None
+
+    async def save_message(**_kwargs):
+        return None
+
     monkeypatch.setattr(telegram.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(telegram, "AsyncSessionLocal", FakeDB)
+    monkeypatch.setattr(telegram.crud, "get_user_by_telegram_id", get_profile)
+    monkeypatch.setattr(telegram.crud, "save_chat_message", save_message)
     telegram.active_chats[124] = UnavailableChat()
     telegram.active_chat_dates[124] = datetime.now(telegram.ROME).date()
 
-    await telegram.telegram_webhook(
-        _FakeRequest(
-            {
-                "update_id": 104,
-                "message": {
-                    "chat": {"id": 124},
-                    "text": "Привет, хочу записаться",
-                },
-            }
-        ),
-        db=object(),
+    await telegram._process_client_turn(
+        chat_id=124,
+        telegram_user_id="124",
+        user_text="Привет, хочу записаться",
     )
 
     sent_text = _FakeTelegramClient.instances[0].requests[0][1]["text"]
@@ -548,22 +573,341 @@ async def test_database_failure_sends_localized_fallback_without_details(monkeyp
 
     monkeypatch.setattr(telegram.crud, "get_services", fail_get_services)
 
-    await telegram.telegram_webhook(
-        _FakeRequest(
-            {
-                "update_id": 103,
-                "message": {
-                    "chat": {"id": 123},
-                    "text": "Vorrei prenotare un appuntamento",
-                },
-            }
-        ),
-        db=object(),
+    class FailedDB:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+    monkeypatch.setattr(telegram, "AsyncSessionLocal", FailedDB)
+    await telegram._process_client_turn(
+        chat_id=123,
+        telegram_user_id="123",
+        user_text="Vorrei prenotare un appuntamento",
     )
 
     sent_text = _FakeTelegramClient.instances[0].requests[0][1]["text"]
     assert sent_text == "Si è verificato un problema. Riprova tra poco."
     assert "SECRET SQL" not in sent_text
+
+
+@pytest.mark.asyncio
+async def test_debounce_batches_messages_for_one_user(monkeypatch):
+    batches = []
+    monkeypatch.setattr(telegram, "MESSAGE_DEBOUNCE_SECONDS", 0.02)
+
+    async def record_turn(chat_id, telegram_user_id, user_text):
+        batches.append((chat_id, telegram_user_id, user_text))
+
+    monkeypatch.setattr(telegram, "_process_client_turn", record_turn)
+
+    await telegram._enqueue_message(100, "100", "Hello")
+    await telegram.asyncio.sleep(0.005)
+    await telegram._enqueue_message(100, "100", "I want an appointment")
+    await telegram.asyncio.sleep(0.05)
+
+    assert batches == [(100, "100", "Hello\nI want an appointment")]
+
+
+@pytest.mark.asyncio
+async def test_debounce_keeps_clients_in_separate_batches(monkeypatch):
+    batches = []
+    monkeypatch.setattr(telegram, "MESSAGE_DEBOUNCE_SECONDS", 0.01)
+
+    async def record_turn(chat_id, telegram_user_id, user_text):
+        batches.append((chat_id, telegram_user_id, user_text))
+
+    monkeypatch.setattr(telegram, "_process_client_turn", record_turn)
+
+    await telegram._enqueue_message(100, "100", "Client one")
+    await telegram._enqueue_message(200, "200", "Client two")
+    await telegram.asyncio.sleep(0.04)
+
+    assert sorted(batches) == [
+        (100, "100", "Client one"),
+        (200, "200", "Client two"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_reschedule_requires_slot_check_and_confirms_old_and_new_times(
+    monkeypatch,
+):
+    old_start = datetime(2026, 12, 1, 10, 0, tzinfo=telegram.ROME)
+    new_start = datetime(2026, 12, 5, 11, 0, tzinfo=telegram.ROME)
+    appointment = SimpleNamespace(
+        id=42,
+        service_id=7,
+        start_time=old_start,
+        end_time=old_start + telegram.timedelta(minutes=60),
+        service=SimpleNamespace(name="Manicure"),
+    )
+
+    async def get_upcoming(**_kwargs):
+        return SimpleNamespace(id=5), [appointment]
+
+    monkeypatch.setattr(
+        telegram.crud,
+        "get_upcoming_appointments_for_telegram_user",
+        get_upcoming,
+    )
+
+    async def update(**kwargs):
+        appointment.start_time = kwargs["appointment_update"].start_time
+        return appointment
+
+    monkeypatch.setattr(telegram.crud, "update_appointment", update)
+    checked_slots = {
+        telegram._slot_key(7, new_start.isoformat(), 42)
+    }
+
+    result = await telegram.reschedule_booking(
+        db=object(),
+        telegram_user_id="123",
+        appointment_id=42,
+        start_time_str=new_start.isoformat(),
+        available_slots=checked_slots,
+    )
+
+    assert result.startswith("Success!")
+    assert "2026-12-01 10:00" in result
+    assert "2026-12-05 11:00" in result
+    assert checked_slots == set()
+
+
+@pytest.mark.asyncio
+async def test_reschedule_refuses_unchecked_time(monkeypatch):
+    appointment = SimpleNamespace(
+        id=42,
+        service_id=7,
+        start_time=datetime(2026, 12, 1, 10, 0, tzinfo=telegram.ROME),
+        end_time=datetime(2026, 12, 1, 11, 0, tzinfo=telegram.ROME),
+        service=SimpleNamespace(name="Manicure"),
+    )
+    monkeypatch.setattr(
+        telegram.crud,
+        "get_upcoming_appointments_for_telegram_user",
+        lambda **_kwargs: None,
+    )
+
+    async def get_upcoming(**_kwargs):
+        return SimpleNamespace(id=5), [appointment]
+
+    monkeypatch.setattr(
+        telegram.crud,
+        "get_upcoming_appointments_for_telegram_user",
+        get_upcoming,
+    )
+
+    async def unexpected_update(**_kwargs):
+        pytest.fail("Unchecked reschedule must not reach the database update.")
+
+    monkeypatch.setattr(telegram.crud, "update_appointment", unexpected_update)
+
+    result = await telegram.reschedule_booking(
+        db=object(),
+        telegram_user_id="123",
+        appointment_id=42,
+        start_time_str="2026-12-05T11:00:00+01:00",
+        available_slots=set(),
+    )
+
+    assert "haven't checked" in result
+
+
+@pytest.mark.asyncio
+async def test_reschedule_function_loop_requires_lookup_then_availability(monkeypatch):
+    events = []
+    new_time = "2026-12-05T11:00:00+01:00"
+
+    async def find_appointments(**_kwargs):
+        events.append("lookup")
+        return {"found": True, "appointments": [{"appointment_id": 42}]}
+
+    async def check_availability(**kwargs):
+        events.append("availability")
+        assert kwargs["appointment_id"] == 42
+        return {"available": True}
+
+    async def reschedule(**kwargs):
+        events.append("reschedule")
+        assert telegram._slot_key(7, new_time, 42) in kwargs["available_slots"]
+        return "Success! Rescheduled appointment #42."
+
+    monkeypatch.setattr(telegram, "find_upcoming_appointments", find_appointments)
+    monkeypatch.setattr(
+        telegram, "check_nail_appointment_availability", check_availability
+    )
+    monkeypatch.setattr(telegram, "reschedule_booking", reschedule)
+
+    class Chat:
+        def __init__(self):
+            self.responses = [
+                SimpleNamespace(
+                    function_calls=[
+                        _function_call(
+                            telegram.CHECK_AVAILABILITY_TOOL,
+                            {
+                                "service_id": 7,
+                                "start_time_str": new_time,
+                                "appointment_id": 42,
+                            },
+                        )
+                    ],
+                    text=None,
+                ),
+                SimpleNamespace(
+                    function_calls=[
+                        _function_call(
+                            telegram.RESCHEDULE_BOOKING_TOOL,
+                            {
+                                "appointment_id": 42,
+                                "start_time_str": new_time,
+                            },
+                        )
+                    ],
+                    text=None,
+                ),
+                SimpleNamespace(
+                    function_calls=[],
+                    text="Your appointment was moved.",
+                ),
+            ]
+
+        async def send_message(self, _message):
+            return self.responses.pop(0)
+
+    response = SimpleNamespace(
+        function_calls=[
+            _function_call(telegram.FIND_UPCOMING_APPOINTMENTS_TOOL, {})
+        ],
+        text=None,
+    )
+    final_response, result, succeeded = await telegram._handle_function_calls(
+        response=response,
+        chat_session=Chat(),
+        db=object(),
+        telegram_user_id="123",
+    )
+
+    assert events == ["lookup", "availability", "reschedule"]
+    assert result.startswith("Success!")
+    assert succeeded is True
+    assert final_response.text == "Your appointment was moved."
+
+
+@pytest.mark.asyncio
+async def test_crud_update_appointment_rejects_conflict_without_mutating(monkeypatch):
+    import crud
+
+    old_start = datetime(2026, 12, 1, 10, 0, tzinfo=telegram.ROME)
+    appointment = SimpleNamespace(
+        id=42,
+        service_id=7,
+        start_time=old_start,
+        end_time=old_start + telegram.timedelta(minutes=60),
+    )
+
+    class FakeDB:
+        async def get(self, _model, _service_id):
+            return SimpleNamespace(duration=60)
+
+    observed = {}
+
+    async def conflict(**kwargs):
+        observed.update(kwargs)
+        return True
+
+    monkeypatch.setattr(crud, "check_appointment_conflict", conflict)
+
+    with pytest.raises(crud.AppointmentConflictError):
+        await crud.update_appointment(
+            db=FakeDB(),
+            appointment=appointment,
+            appointment_update=telegram.schemas.AppointmentUpdate(
+                start_time=datetime(2026, 12, 5, 11, 0, tzinfo=telegram.ROME)
+            ),
+        )
+
+    assert observed["exclude_appointment_id"] == 42
+    assert appointment.start_time == old_start
+
+
+@pytest.mark.asyncio
+async def test_chat_history_is_limited_to_current_session_gap():
+    now = datetime(2026, 12, 1, 12, 0, tzinfo=telegram.ROME)
+
+    class FakeDB:
+        def __init__(self, latest_message_at):
+            self.latest_message_at = latest_message_at
+            self.execute_called = False
+
+        async def scalar(self, _query):
+            return self.latest_message_at
+
+        async def execute(self, _query):
+            self.execute_called = True
+            messages = [
+                SimpleNamespace(role="model", content="reply"),
+                SimpleNamespace(role="user", content="recent"),
+            ]
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: messages)
+            )
+
+    recent_db = FakeDB(now - telegram.timedelta(hours=1))
+    recent = await telegram.crud.get_recent_chat_messages(
+        db=recent_db,
+        telegram_user_id="123",
+        now=now,
+    )
+    assert [message.content for message in recent] == ["recent", "reply"]
+    assert recent_db.execute_called is True
+
+    stale_db = FakeDB(now - telegram.timedelta(hours=13))
+    stale = await telegram.crud.get_recent_chat_messages(
+        db=stale_db,
+        telegram_user_id="123",
+        now=now,
+    )
+    assert stale == []
+    assert stale_db.execute_called is False
+
+
+@pytest.mark.asyncio
+async def test_appointment_update_ignores_null_optional_fields(monkeypatch):
+    import crud
+
+    appointment = SimpleNamespace(
+        id=42,
+        service_id=7,
+        start_time=datetime(2026, 12, 1, 10, 0, tzinfo=telegram.ROME),
+        end_time=datetime(2026, 12, 1, 11, 0, tzinfo=telegram.ROME),
+    )
+
+    class FakeDB:
+        async def get(self, _model, _service_id):
+            return SimpleNamespace(duration=60)
+
+        async def commit(self):
+            pass
+
+        async def refresh(self, _appointment, attribute_names):
+            assert attribute_names == ["service"]
+
+    async def no_conflict(**_kwargs):
+        pytest.fail("No schedule change should require a conflict check.")
+
+    monkeypatch.setattr(crud, "check_appointment_conflict", no_conflict)
+    updated = await crud.update_appointment(
+        db=FakeDB(),
+        appointment=appointment,
+        appointment_update=telegram.schemas.AppointmentUpdate(service_id=None),
+    )
+
+    assert updated is appointment
+    assert appointment.service_id == 7
 
 
 @pytest.mark.asyncio
@@ -573,6 +917,11 @@ async def test_client_message_forwarding_stores_admin_to_client_mapping(monkeypa
     monkeypatch.setattr(telegram.settings, "telegram_bot_token", SecretStr("test-token"))
     monkeypatch.setattr(telegram.settings, "admin_telegram_chat_id", 9001)
     monkeypatch.setattr(telegram.settings, "forward_client_messages_to_admin", True)
+
+    async def discard_client_turn(**_kwargs):
+        return None
+
+    monkeypatch.setattr(telegram, "_enqueue_message", discard_client_turn)
 
     class Chat:
         async def send_message(self, _text):
@@ -607,7 +956,7 @@ async def test_client_message_forwarding_stores_admin_to_client_mapping(monkeypa
         for fake_client in _FakeTelegramClient.instances
         for request in fake_client.requests
     ]
-    assert len(client_requests) == 2
+    assert len(client_requests) == 1
     forwarded_url, forwarded_payload = client_requests[0]
     assert forwarded_url.endswith("/sendMessage")
     assert forwarded_payload["chat_id"] == 9001

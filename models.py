@@ -1,6 +1,7 @@
 # SQLAlchemy tables
 import datetime
-from sqlalchemy import ForeignKey, String, DateTime
+
+from sqlalchemy import ForeignKey, String, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from database import Base
 
@@ -14,6 +15,9 @@ class User(Base):
         String(120), unique=True, nullable=True
     )
     phone: Mapped[str] = mapped_column(String(20), unique=True)
+    telegram_user_id: Mapped[str | None] = mapped_column(
+        String(64), unique=True, index=True, nullable=True
+    )
     password_hash: Mapped[str] = mapped_column(String(200), nullable=True)
     # Status column
     is_active: Mapped[bool] = mapped_column(default=True, server_default="true")
@@ -35,6 +39,11 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    chat_messages: Mapped[list["ChatMessage"]] = relationship(
+        "ChatMessage",
+        back_populates="client",
+        cascade="all, delete-orphan",
+    )
 
 class Appointment(Base):
     __tablename__ = "appointments"
@@ -113,3 +122,25 @@ class PasswordResetToken(Base):
     # User Foreign key and Many-to-one relationship: many tokens have one client
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
     client: Mapped["User"] = relationship("User", back_populates="reset_tokens")
+
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    telegram_user_id: Mapped[str] = mapped_column(String(64), unique=False, index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.datetime.now(datetime.UTC),
+        index=True,
+        nullable=False,
+    )
+    # User Foreign key and Many-to-one relationship: many messages have one client
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id"), nullable=True
+    )
+    client: Mapped["User"] = relationship("User", back_populates="chat_messages")

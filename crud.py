@@ -10,6 +10,10 @@ from config import Settings, settings
 from security import hash_password
 
 
+class AppointmentConflictError(Exception):
+    """Raised when an appointment update would overlap another booking."""
+
+
 # Helper: Fetch user by case-insensitive username
 async def get_user_by_username(db: AsyncSession, username: str) -> models.User | None:
     """Fetch user by username asynchronously (case-insensitive)."""
@@ -57,6 +61,98 @@ async def get_user_by_id(db: AsyncSession, user_id: int) -> models.User | None:
         .where(models.User.id == user_id)
     )
     return result.scalars().first()
+
+
+async def get_user_by_telegram_id(
+    db: AsyncSession,
+    telegram_user_id: str,
+) -> models.User | None:
+    result = await db.execute(
+        select(models.User).where(
+            models.User.telegram_user_id == telegram_user_id
+        )
+    )
+    return result.scalars().first()
+
+
+async def link_telegram_user_to_client(
+    db: AsyncSession,
+    user_id: int,
+    telegram_user_id: str,
+) -> bool:
+    user = await db.get(models.User, user_id)
+    if user is None:
+        return False
+    existing_user = await get_user_by_telegram_id(db, telegram_user_id)
+    if existing_user is not None and existing_user.id != user_id:
+        return False
+    user.telegram_user_id = telegram_user_id
+    await db.commit()
+    return True
+
+
+async def get_upcoming_appointments_for_telegram_user(
+    db: AsyncSession,
+    telegram_user_id: str,
+    now: datetime,
+) -> tuple[models.User | None, list[models.Appointment]]:
+    user = await get_user_by_telegram_id(db, telegram_user_id)
+    if user is None:
+        return None, []
+    result = await db.execute(
+        select(models.Appointment)
+        .where(
+            models.Appointment.user_id == user.id,
+            models.Appointment.start_time >= now,
+        )
+        .options(selectinload(models.Appointment.service))
+        .order_by(models.Appointment.start_time)
+    )
+    return user, list(result.scalars().all())
+
+
+async def save_chat_message(
+    db: AsyncSession,
+    telegram_user_id: str,
+    role: str,
+    content: str,
+) -> models.ChatMessage:
+    message = models.ChatMessage(
+        telegram_user_id=telegram_user_id,
+        role=role,
+        content=content,
+    )
+    db.add(message)
+    await db.commit()
+    await db.refresh(message)
+    return message
+
+
+async def get_recent_chat_messages(
+    db: AsyncSession,
+    telegram_user_id: str,
+    now: datetime,
+    limit: int = 12,
+    session_gap: timedelta = timedelta(hours=12),
+) -> list[models.ChatMessage]:
+    latest_message_at = await db.scalar(
+        select(func.max(models.ChatMessage.created_at)).where(
+            models.ChatMessage.telegram_user_id == telegram_user_id
+        )
+    )
+    if latest_message_at is None or latest_message_at < now - session_gap:
+        return []
+
+    result = await db.execute(
+        select(models.ChatMessage)
+        .where(
+            models.ChatMessage.telegram_user_id == telegram_user_id,
+            models.ChatMessage.created_at >= now - session_gap,
+        )
+        .order_by(models.ChatMessage.created_at.desc())
+        .limit(limit)
+    )
+    return list(reversed(result.scalars().all()))
 
 
 async def create_user(db: AsyncSession, user: schemas.UserCreate) -> models.User:
@@ -344,15 +440,19 @@ async def check_appointment_conflict(
         db: AsyncSession,
         start_time: datetime,
         end_time: datetime,
-        buffer_min: int = settings.appointment_buffer_minutes
+        buffer_min: int = settings.appointment_buffer_minutes,
+        exclude_appointment_id: int | None = None,
 ) -> bool:
     buffer = timedelta(minutes=buffer_min)
+    conditions = [
+        models.Appointment.start_time < end_time + buffer,
+        models.Appointment.end_time + buffer > start_time,
+    ]
+    if exclude_appointment_id is not None:
+        conditions.append(models.Appointment.id != exclude_appointment_id)
     result = await db.execute(
         select(models.Appointment)
-        .where(and_(
-                models.Appointment.start_time < end_time + buffer,
-                models.Appointment.end_time + buffer > start_time,)
-        )
+        .where(and_(*conditions))
     )
     existing_appointment = result.scalars().first()
 
@@ -471,25 +571,37 @@ async def update_appointment(
         appointment_update: schemas.AppointmentUpdate,
         ) -> models.Appointment | None:
 
-    update_data = appointment_update.model_dump(exclude_unset=True)
+    update_data = appointment_update.model_dump(
+        exclude_unset=True,
+        exclude_none=True,
+    )
 
-    #  Validate service existence if service_id is being updated
-    if "service_id" in update_data and update_data["service_id"] is not None:
-        target_service = await db.get(models.Service, update_data["service_id"])
-        if not target_service:
-            return None
-    # Update basic fields
-    for field, value in update_data.items():
-        setattr(appointment, field, value)
+    target_start_time = update_data.get("start_time", appointment.start_time)
+    target_service_id = update_data.get("service_id", appointment.service_id)
+    if target_start_time is None or target_service_id is None:
+        raise ValueError("Appointment start time and service are required.")
 
-        # Recalculate end_time if start_time or service changed
-        if "start_time" in update_data or "service_id" in update_data:
-            # Fetch service to get duration
-            service = await db.get(models.Service, appointment.service_id)
-            if service:
-                appointment.end_time = appointment.start_time + timedelta(minutes=service.duration)
+    target_service = await db.get(models.Service, target_service_id)
+    if not target_service:
+        return None
+
+    target_end_time = target_start_time + timedelta(minutes=target_service.duration)
+    schedule_changed = (
+        target_start_time != appointment.start_time
+        or target_service_id != appointment.service_id
+    )
+    if schedule_changed and await check_appointment_conflict(
+        db=db,
+        start_time=target_start_time,
+        end_time=target_end_time,
+        exclude_appointment_id=appointment.id,
+    ):
+        raise AppointmentConflictError("Time slot already booked.")
+
+    appointment.start_time = target_start_time
+    appointment.service_id = target_service_id
+    appointment.end_time = target_end_time
 
     await db.commit()
     await db.refresh(appointment, attribute_names=["service"])
     return appointment
-

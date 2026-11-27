@@ -108,11 +108,17 @@ async def update_appointment_admin(
         )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.update_appointment(
-        db=db,
-        appointment_update=appointment_update,
-        appointment=appointment,
-    )
+    try:
+        updated_appointment = await crud.update_appointment(
+            db=db,
+            appointment_update=appointment_update,
+            appointment=appointment,
+        )
+    except crud.AppointmentConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     if updated_appointment is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -141,11 +147,17 @@ async def update_appointment_user(
         )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.update_appointment(
-        db=db,
-        appointment_update=appointment_update,
-        appointment=appointment,
-    )
+    try:
+        updated_appointment = await crud.update_appointment(
+            db=db,
+            appointment_update=appointment_update,
+            appointment=appointment,
+        )
+    except crud.AppointmentConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     # Handle invalid target service
     if updated_appointment is None:
         raise HTTPException(
@@ -172,11 +184,17 @@ async def update_appointment_guest(
         )
 
     # Perform update & return fresh record
-    updated_appointment = await crud.update_appointment(
-        db=db,
-        appointment_update=appointment_update,
-        appointment=appointment,
-    )
+    try:
+        updated_appointment = await crud.update_appointment(
+            db=db,
+            appointment_update=appointment_update,
+            appointment=appointment,
+        )
+    except crud.AppointmentConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     # Handle invalid target service
     if updated_appointment is None:
         raise HTTPException(
@@ -265,4 +283,3 @@ async def cancel_appointment_admin(
         )
     await crud.delete_appointment(db=db, appointment=appointment)
     return None
-
